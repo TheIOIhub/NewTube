@@ -55,6 +55,7 @@ dependencies {
 
     // ExoPlayer
     implementation("com.google.android.exoplayer:exoplayer:2.19.0")
+    implementation("com.google.android.exoplayer:ui:2.19.0")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")

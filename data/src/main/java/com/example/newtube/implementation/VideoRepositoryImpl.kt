@@ -42,6 +42,11 @@ class VideoRepositoryImpl @Inject constructor(
         listOf()
     }
 
+    override suspend fun getStreamUrl(videoId: String): String = withContext(Dispatchers.IO) {
+        service.getStream(videoId)
+    }
+
+
     // Mapping helpers
     private fun VideoDto.toEntity(): VideoEntity = VideoEntity(
         id = id,
