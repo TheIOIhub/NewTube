@@ -13,6 +13,13 @@ interface InvidiousService {
         @Query("limit") limit: Int = 25
     ): List<VideoDto>
 
+    @GET("api/v1/videos")
+    suspend fun getShorts(
+        @Query("filter") filter: String = "shorts",
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 25
+    ): List<VideoDto>
+
     @GET("api/v1/search")
     suspend fun searchVideos(
         @Query("q") query: String,

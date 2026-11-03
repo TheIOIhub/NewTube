@@ -24,6 +24,13 @@ class VideoRepositoryImpl @Inject constructor(
         entities.map { it.toDomain() }
     }
 
+    override suspend fun getShorts(page: Int) = withContext(Dispatchers.IO) {
+        val dtos = service.getShorts(page = page)
+        val entities = dtos.map { it.toEntity() }
+        dao.insertAll(entities)
+        entities.map { it.toDomain() }
+    }
+
     override suspend fun search(query: String, page: Int): List<Video> = withContext(Dispatchers.IO) {
         val dtos = service.searchVideos(query, page = page)
         val entities = dtos.map { it.toEntity() }

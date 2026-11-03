@@ -25,7 +25,7 @@ class ShortsViewModel @Inject constructor(
     private fun loadTrending() {
         viewModelScope.launch {
             try {
-                val videos = repository.getTrending()
+                val videos = repository.getShorts()
                 _videos.value = videos
             } catch (e: Exception) {
                 _videos.value = emptyList()
