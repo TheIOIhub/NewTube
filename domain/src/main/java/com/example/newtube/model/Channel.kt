@@ -5,5 +5,6 @@ data class Channel(
     val name: String,
     val avatarUrl: String,
     val subscriberCount: Long,
-    val totalVideos: Int
+    val totalVideos: Int,
+    val description: String
 )

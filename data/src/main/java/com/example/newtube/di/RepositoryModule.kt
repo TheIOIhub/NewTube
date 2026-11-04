@@ -2,6 +2,7 @@ package com.example.newtube.di
 
 import com.example.newtube.remote.InvidiousService
 import com.example.newtube.database.VideoDao
+import com.example.newtube.database.ChannelDao
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.implementation.VideoRepositoryImpl
 import dagger.Module
@@ -18,6 +19,7 @@ object RepositoryModule {
     @Singleton
     fun provideVideoRepository(
         service: InvidiousService,
-        dao: VideoDao
-    ): VideoRepository = VideoRepositoryImpl(service, dao)
+        dao: VideoDao,
+        channelDao: ChannelDao
+    ): VideoRepository = VideoRepositoryImpl(service, dao, channelDao)
 }

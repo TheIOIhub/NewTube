@@ -2,9 +2,13 @@ package com.example.newtube.implementation
 
 import com.example.newtube.remote.InvidiousService
 import com.example.newtube.remote.VideoDto
+import com.example.newtube.remote.ChannelDto
 import com.example.newtube.database.VideoDao
 import com.example.newtube.database.VideoEntity
+import com.example.newtube.database.ChannelDao
+import com.example.newtube.database.ChannelEntity
 import com.example.newtube.model.Video
+import com.example.newtube.model.Channel
 import com.example.newtube.repository.VideoRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,7 +18,8 @@ import javax.inject.Singleton
 @Singleton
 class VideoRepositoryImpl @Inject constructor(
     private val service: InvidiousService,
-    private val dao: VideoDao
+    private val dao: VideoDao,
+    private val channelDao: ChannelDao
 ) : VideoRepository {
 
     override suspend fun getTrending(page: Int): List<Video> = withContext(Dispatchers.IO) {
@@ -55,6 +60,11 @@ class VideoRepositoryImpl @Inject constructor(
         service.getStream(videoId)
     }
 
+    override suspend fun getChannelDetails(channelId: String): Channel = withContext(Dispatchers.IO) {
+        channelDao.getChannelById(channelId)?.toDomain()
+            ?: service.getChannelDetails(channelId).toEntity().apply { channelDao.insert(this) }.toDomain()
+    }
+
 
     // Mapping helpers
     private fun VideoDto.toEntity(): VideoEntity = VideoEntity(
@@ -78,4 +88,23 @@ class VideoRepositoryImpl @Inject constructor(
         uploadedAt = uploadedAt,
         isLive = isLive
     )
+
+    private fun ChannelDto.toEntity(): ChannelEntity = ChannelEntity(
+        id = id,
+        name = name,
+        avatarUrl = avatarUrl,
+        subscriberCount = subscriberCount,
+        totalVideos = totalVideos,
+        description = description
+    )
+
+    private fun ChannelEntity.toDomain(): Channel = Channel(
+        id = id,
+        name = name,
+        avatarUrl = avatarUrl,
+        subscriberCount = subscriberCount,
+        totalVideos = totalVideos,
+        description = description
+    )
+
 }

@@ -45,4 +45,9 @@ interface InvidiousService {
     suspend fun getStream(
         @Path("videoId") videoId: String
     ): String
+
+    @GET("api/v1/channels/{channelId}")
+    suspend fun getChannelDetails(
+        @Path("channelId") channelId: String
+    ): ChannelDto
 }

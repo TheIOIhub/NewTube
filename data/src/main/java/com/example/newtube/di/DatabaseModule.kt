@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.example.newtube.database.NewTubeDatabase
 import com.example.newtube.database.VideoDao
+import com.example.newtube.database.ChannelDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -27,4 +28,7 @@ object DatabaseModule {
 
     @Provides
     fun provideVideoDao(db: NewTubeDatabase): VideoDao = db.videoDao()
+
+    @Provides
+    fun provideChannelDao(db: NewTubeDatabase): ChannelDao = db.channelDao()
 }
