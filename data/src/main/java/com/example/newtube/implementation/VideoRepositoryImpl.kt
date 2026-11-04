@@ -45,8 +45,10 @@ class VideoRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getChannelVideos(channelId: String, page: Int): List<Video> = withContext(Dispatchers.IO) {
-        // Placeholder – Invidious currently does not provide a dedicated endpoint for channel videos
-        listOf()
+        val dtos = service.getChannelVideos(channelId, page = page)
+        val entities = dtos.map { it.toEntity() }
+        dao.insertAll(entities)
+        entities.map { it.toDomain() }
     }
 
     override suspend fun getStreamUrl(videoId: String): String = withContext(Dispatchers.IO) {

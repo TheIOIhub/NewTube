@@ -9,6 +9,7 @@ import com.example.newtube.ui.home.HomeScreen
 import com.example.newtube.ui.shorts.ShortsScreen
 import com.example.newtube.ui.search.SearchScreen
 import com.example.newtube.ui.video.PlayerScreen
+import com.example.newtube.ui.channel.ChannelScreen
 
 @Composable
 fun NavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
@@ -20,6 +21,10 @@ fun NavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
         composable("home") { HomeScreen(navController) }
         composable("shorts") { ShortsScreen(navController) }
         composable("search") { SearchScreen(navController) }
+        composable("channel/{channelId}") { backStackEntry ->
+            val channelId = backStackEntry.arguments?.getString("channelId") ?: ""
+            ChannelScreen(navController, channelId)
+        }
         composable("videoPlayer/{videoId}") { backStackEntry ->
             val videoId = backStackEntry.arguments?.getString("videoId") ?: ""
             PlayerScreen(videoId)

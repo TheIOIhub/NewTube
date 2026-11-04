@@ -21,7 +21,8 @@ fun ShortsScreen(navController: NavController, viewModel: ShortsViewModel = hilt
                 video = video,
                 onClick = { videoId ->
                     navController.navigate("videoPlayer/$videoId")
-                }
+                },
+                onChannelClick = { channelName -> navController.navigate("channel/" + channelName) }
             )
         }
     }

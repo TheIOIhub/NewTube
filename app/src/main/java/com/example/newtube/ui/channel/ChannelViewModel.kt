@@ -1,4 +1,4 @@
-package com.example.newtube.ui.shorts
+package com.example.newtube.ui.channel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,24 +11,20 @@ import com.example.newtube.repository.VideoRepository
 import javax.inject.Inject
 
 @HiltViewModel
-class ShortsViewModel @Inject constructor(
+class ChannelViewModel @Inject constructor(
     private val repository: VideoRepository
 ) : ViewModel() {
 
-    private val _videos = MutableStateFlow<List<Video>>(emptyList())
-    val videos: StateFlow<List<Video>> = _videos
+    private val _channelVideos = MutableStateFlow<List<Video>>(emptyList())
+    val channelVideos: StateFlow<List<Video>> = _channelVideos
 
-    init {
-        loadTrending()
-    }
-
-    private fun loadTrending() {
+    fun loadChannelVideos(channelId: String) {
         viewModelScope.launch {
             try {
-                val videos = repository.getTrending()
-                _videos.value = videos
+                val videos = repository.getChannelVideos(channelId)
+                _channelVideos.value = videos
             } catch (e: Exception) {
-                _videos.value = emptyList()
+                _channelVideos.value = emptyList()
             }
         }
     }

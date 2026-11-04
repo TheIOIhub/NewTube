@@ -13,7 +13,7 @@ import coil.compose.rememberAsyncImagePainter
 import com.example.newtube.model.Video
 
 @Composable
-fun VideoListItem(video: Video, onClick: (String) -> Unit) {
+fun VideoListItem(video: Video, onClick: (String) -> Unit, onChannelClick: (String) -> Unit = {}) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -34,6 +34,12 @@ fun VideoListItem(video: Video, onClick: (String) -> Unit) {
             Text(
                 text = video.title,
                 modifier = Modifier.padding(8.dp)
+            )
+            Text(
+                text = video.channelName,
+                modifier = Modifier
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .clickable { onChannelClick(video.channelName) }
             )
         }
     }

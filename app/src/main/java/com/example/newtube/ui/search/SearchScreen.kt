@@ -53,7 +53,8 @@ fun SearchScreen(navController: NavController) {
                         video = video,
                         onClick = { videoId ->
                             navController.navigate("videoPlayer/" + videoId)
-                        }
+                        },
+                        onChannelClick = { channelName -> navController.navigate("channel/" + channelName) }
                     )
                 }
             }
