@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [VideoEntity::class, ChannelEntity::class],
     version = NewTubeDatabase.VERSION,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class NewTubeDatabase : RoomDatabase() {
     abstract fun videoDao(): VideoDao
