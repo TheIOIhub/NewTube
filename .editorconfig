@@ -1,0 +1,28 @@
+root = true
+
+[*]
+charset = utf-8
+indent_size = 4
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{kt,kts}]
+# Compose screens and Gradle files use long lines on purpose.
+max_line_length = off
+# `import androidx.compose.foundation.layout.*` is the Compose convention.
+ktlint_standard_no-wildcard-imports = disabled
+# Compose components are PascalCase by convention.
+ktlint_standard_function-naming = disabled
+# Reformatting `class X @Inject constructor(...)` into a 8-space indented body
+# hurts readability; the rule is disabled on purpose.
+ktlint_standard_class-signature = disabled
+ktlint_standard_annotation = disabled
+# Keep short signatures on one line (default is 2, which reformats every function).
+ktlint_function_signature_rule_force_multiline_when_parameter_count_greater_or_equal_than = 5

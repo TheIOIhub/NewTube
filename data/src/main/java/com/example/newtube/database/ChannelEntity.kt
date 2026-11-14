@@ -10,5 +10,5 @@ data class ChannelEntity(
     val avatarUrl: String,
     val subscriberCount: Long,
     val totalVideos: Int,
-    val description: String
+    val description: String,
 )

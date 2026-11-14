@@ -22,3 +22,9 @@ local.properties
 
 # External Dependencies
 */build/
+
+# Local verification artefacts
+*-shot.png
+*-log.txt
+logcat*.txt
+.superpowers/

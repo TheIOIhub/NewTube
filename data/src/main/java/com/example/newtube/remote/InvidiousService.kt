@@ -4,50 +4,81 @@ import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
 
+/**
+ * Invidious REST API, see https://docs.invidious.io/api/.
+ *
+ * Only the endpoints used by the app are declared here. Trending feeds are not
+ * paginated by Invidious, so [getTrending] takes a region instead of a page
+ * number; channel uploads are paginated with an opaque continuation token.
+ */
 interface InvidiousService {
-    @GET("api/v1/videos")
+    @GET("api/v1/trending")
     suspend fun getTrending(
-        @Query("page") page: Int = 1,
-        @Query("sort") sort: String = "popular",
-        @Query("offset") offset: Int = 0,
-        @Query("limit") limit: Int = 25
+        @Query("region") region: String = "US",
+        @Query("type") type: String = "Default",
     ): List<VideoDto>
 
-    @GET("api/v1/videos")
+    /** Popular feed: a second, larger source for the mixed Home feed. */
+    @GET("api/v1/popular")
+    suspend fun getPopular(): List<VideoDto>
+
+    /**
+     * Invidious has no dedicated shorts feed, the closest equivalent is a video
+     * search restricted to short clips.
+     */
+    @GET("api/v1/search")
     suspend fun getShorts(
-        @Query("filter") filter: String = "shorts",
+        @Query("q") query: String = "#shorts",
+        @Query("type") type: String = "video",
+        @Query("duration") duration: String = "short",
         @Query("page") page: Int = 1,
-        @Query("limit") limit: Int = 25
     ): List<VideoDto>
 
-    @GET("api/v1/videos")
+    @GET("api/v1/channels/{channelId}/videos")
     suspend fun getChannelVideos(
-        @Query("channel_id") channelId: String,
-        @Query("page") page: Int = 1,
-        @Query("limit") limit: Int = 25
-    ): List<VideoDto>
+        @Path("channelId") channelId: String,
+        @Query("continuation") continuation: String? = null,
+    ): ChannelVideosDto
+
+    /** Real vertical Shorts of a channel (the only reliable Shorts source). */
+    @GET("api/v1/channels/{channelId}/shorts")
+    suspend fun getChannelShorts(
+        @Path("channelId") channelId: String,
+        @Query("continuation") continuation: String? = null,
+    ): ChannelVideosDto
 
     @GET("api/v1/search")
     suspend fun searchVideos(
         @Query("q") query: String,
+        @Query("type") type: String = "video",
         @Query("page") page: Int = 1,
-        @Query("sort") sort: String = "relevance",
-        @Query("offset") offset: Int = 0,
-        @Query("limit") limit: Int = 25
     ): List<VideoDto>
 
+    @GET("api/v1/search")
+    suspend fun searchChannels(
+        @Query("q") query: String,
+        @Query("type") type: String = "channel",
+        @Query("page") page: Int = 1,
+    ): List<ChannelSearchDto>
+
+    /**
+     * Single video endpoint: besides metadata it returns `hlsUrl`,
+     * `formatStreams`, `adaptiveFormats` and `recommendedVideos`, which is where
+     * the playable URL comes from (there is no `/api/v1/streams/{id}` endpoint).
+     */
     @GET("api/v1/videos/{videoId}")
     suspend fun getVideoDetails(
-        @Path("videoId") videoId: String
+        @Path("videoId") videoId: String,
     ): VideoDto
-
-    @GET("api/v1/streams/{videoId}")
-    suspend fun getStream(
-        @Path("videoId") videoId: String
-    ): String
 
     @GET("api/v1/channels/{channelId}")
     suspend fun getChannelDetails(
-        @Path("channelId") channelId: String
+        @Path("channelId") channelId: String,
     ): ChannelDto
+
+    @GET("api/v1/comments/{videoId}")
+    suspend fun getComments(
+        @Path("videoId") videoId: String,
+        @Query("continuation") continuation: String? = null,
+    ): CommentsPageDto
 }
