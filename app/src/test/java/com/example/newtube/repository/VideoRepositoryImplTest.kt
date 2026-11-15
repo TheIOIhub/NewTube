@@ -522,6 +522,35 @@ class VideoRepositoryImplTest {
             assertEquals("", repository.getTrending().single().authorAvatarUrl)
         }
 
+    @Test
+    fun `getShortsShelf is one search and keeps only 1 to 60 second non-live clips`() =
+        runBlocking {
+            coEvery { service.getShorts(page = 1) } returns
+                listOf(
+                    videoDto("short", length = 30),
+                    videoDto("live", length = 30).copy(liveNow = true),
+                    videoDto("long", length = 61),
+                    videoDto("zero", length = 0),
+                    videoDto("short", length = 30),
+                )
+            coJustRun { dao.insertAll(any()) }
+
+            val shelf = repository.getShortsShelf(limit = 8)
+
+            assertEquals(listOf("short"), shelf.map { it.id })
+            coVerify(exactly = 1) { service.getShorts(page = 1) }
+        }
+
+    @Test
+    fun `getShortsShelf honours the limit`() =
+        runBlocking {
+            coEvery { service.getShorts(page = 1) } returns
+                (1..10).map { videoDto("s$it", length = 30) }
+            coJustRun { dao.insertAll(any()) }
+
+            assertEquals(3, repository.getShortsShelf(limit = 3).size)
+        }
+
     private fun adaptiveVideo(
         url: String,
         qualityLabel: String,

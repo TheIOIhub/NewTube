@@ -8,6 +8,7 @@ import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.toUserMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -26,6 +27,11 @@ class HomeViewModel @Inject constructor(
     private val _selectedCategory = MutableStateFlow(HomeCategory.ALL)
     val selectedCategory: StateFlow<HomeCategory> = _selectedCategory
 
+    private val _shortsShelf = MutableStateFlow<List<Video>>(emptyList())
+    val shortsShelf: StateFlow<List<Video>> = _shortsShelf
+
+    private var shelfJob: Job? = null
+
     private val cache = mutableMapOf<HomeCategory, List<Video>>()
 
     /** Incremented by every fetch; stale responses compare against it and bail out. */
@@ -33,6 +39,7 @@ class HomeViewModel @Inject constructor(
 
     init {
         load()
+        loadShortsShelf()
     }
 
     fun selectCategory(category: HomeCategory) {
@@ -52,7 +59,19 @@ class HomeViewModel @Inject constructor(
      * The feed is a shuffled mix, so "load more" becomes "refresh": the current
      * list stays on screen while a new mix is fetched.
      */
-    fun refresh() = fetch(showLoading = false)
+    fun refresh() {
+        fetch(showLoading = false)
+        loadShortsShelf()
+    }
+
+    private fun loadShortsShelf() {
+        shelfJob?.cancel()
+        shelfJob =
+            viewModelScope.launch {
+                _shortsShelf.value =
+                    runCatching { repository.getShortsShelf() }.getOrDefault(emptyList())
+            }
+    }
 
     private fun fetch(showLoading: Boolean) {
         val token = ++requestToken

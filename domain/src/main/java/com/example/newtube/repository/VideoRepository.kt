@@ -17,6 +17,9 @@ interface VideoRepository {
     /** Shorts feed emulated with a `#shorts` search, filtered to 1..60 seconds. */
     suspend fun getShorts(page: Int = 1): List<Video>
 
+    /** One lightweight `#shorts` search for the Home shelf; does not touch the Shorts tab rotation. */
+    suspend fun getShortsShelf(limit: Int = 8): List<Video>
+
     suspend fun search(query: String, page: Int = 1): List<Video>
 
     suspend fun getVideoById(videoId: String): Video

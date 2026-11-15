@@ -29,6 +29,7 @@ class HomeViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        coEvery { repository.getShortsShelf() } returns emptyList()
     }
 
     @After
@@ -129,6 +130,55 @@ class HomeViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(UiState.Success(listOf(video("sport"))), viewModel.uiState.value)
+        }
+
+    @Test
+    fun `shorts shelf loads without blocking the feed`() =
+        runTest {
+            val shelf = CompletableDeferred<List<Video>>()
+            coEvery { repository.getHomeFeed(HomeCategory.ALL) } returns listOf(video("1"))
+            coEvery { repository.getShortsShelf() } coAnswers { shelf.await() }
+
+            val viewModel = HomeViewModel(repository)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(video("1"))), viewModel.uiState.value)
+            assertTrue(viewModel.shortsShelf.value.isEmpty())
+
+            shelf.complete(listOf(video("s1")))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf("s1"), viewModel.shortsShelf.value.map { it.id })
+        }
+
+    @Test
+    fun `a shelf failure is silent and keeps an empty shelf`() =
+        runTest {
+            coEvery { repository.getHomeFeed(HomeCategory.ALL) } returns listOf(video("1"))
+            coEvery { repository.getShortsShelf() } throws IOException("offline")
+
+            val viewModel = HomeViewModel(repository)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(video("1"))), viewModel.uiState.value)
+            assertTrue(viewModel.shortsShelf.value.isEmpty())
+        }
+
+    @Test
+    fun `refresh reloads the shelf too`() =
+        runTest {
+            coEvery { repository.getHomeFeed(HomeCategory.ALL) } returns listOf(video("1"))
+            coEvery { repository.getShortsShelf() } returnsMany
+                listOf(listOf(video("s1")), listOf(video("s2")))
+
+            val viewModel = HomeViewModel(repository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(listOf("s1"), viewModel.shortsShelf.value.map { it.id })
+
+            viewModel.refresh()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf("s2"), viewModel.shortsShelf.value.map { it.id })
         }
 
     private fun video(id: String) =

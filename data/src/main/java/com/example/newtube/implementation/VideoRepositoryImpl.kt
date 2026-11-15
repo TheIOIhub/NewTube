@@ -142,6 +142,19 @@ class VideoRepositoryImpl @Inject constructor(
                 .take(SHORTS_PER_PAGE)
         }
 
+    override suspend fun getShortsShelf(limit: Int): List<Video> =
+        withContext(Dispatchers.IO) {
+            service
+                .getShorts(page = 1)
+                .asSequence()
+                .filter { it.lengthSeconds in 1..SHORTS_SHELF_MAX_SECONDS && !it.liveNow }
+                .distinctBy { it.videoId }
+                .shuffled()
+                .take(limit.coerceAtLeast(0))
+                .toList()
+                .toDomainVideos()
+        }
+
     /** Must be called with [shortsChannelMutex] held. */
     private suspend fun nextShortsChannels(): List<String> {
         val discoveredWithBucket =
@@ -438,6 +451,7 @@ class VideoRepositoryImpl @Inject constructor(
         const val PER_CHANNEL_TAKE = 7
         const val SHORTS_DISCOVERY_QUERIES_PER_PAGE = 4
         const val MAX_CHANNELS_PER_QUERY_BUCKET = 2
+        const val SHORTS_SHELF_MAX_SECONDS = 60L
 
         val MUSIC_QUERIES = listOf("music video", "new song", "official video", "live music")
         val GAMING_QUERIES = listOf("gaming highlights", "gameplay", "esports highlights", "new game")
