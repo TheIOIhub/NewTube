@@ -40,7 +40,7 @@ import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.LocalPipMode
 import com.example.newtube.ui.common.UiState
-import com.example.newtube.ui.common.VideoListItem
+import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.formatCount
 
 @Composable
@@ -145,7 +145,7 @@ private fun WatchContent(
                         )
                     }
                     items(details.related, key = { it.id }) { related ->
-                        VideoListItem(
+                        VideoCard(
                             video = related,
                             onClick = { relatedId -> navController.navigate("watch/$relatedId") },
                             onChannelClick = { channelId ->

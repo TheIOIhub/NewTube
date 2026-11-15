@@ -7,15 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -23,14 +16,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.newtube.ui.common.LocalPipMode
 import com.example.newtube.ui.nav.NavGraph
 import com.example.newtube.ui.settings.SettingsViewModel
+import com.example.newtube.ui.shell.BottomNavigationBar
 import com.example.newtube.ui.theme.NewTubeTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -62,21 +54,20 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val TAB_ROUTES = setOf("home", "shorts", "search")
+private val TAB_ROUTES = setOf("home", "shorts", "search", "subscriptions", "you")
 
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
+    val baseRoute = backStackEntry?.destination?.route?.substringBefore("?")
     val inPip = LocalPipMode.current
-    val showBottomBar = !inPip && currentRoute in TAB_ROUTES
+    val showBottomBar = !inPip && baseRoute in TAB_ROUTES
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            if (showBottomBar) {
-                BottomNavigationBar(navController)
-            }
+            if (showBottomBar) BottomNavigationBar(navController)
         },
     ) { innerPadding ->
         NavGraph(
@@ -85,39 +76,3 @@ fun MainScreen() {
         )
     }
 }
-
-@Composable
-fun BottomNavigationBar(navController: NavHostController) {
-    val items =
-        listOf(
-            BottomNavItem("Home", "home", Icons.Default.Home),
-            BottomNavItem("Shorts", "shorts", Icons.Default.Star),
-            BottomNavItem("Search", "search", Icons.Default.Search),
-        )
-    NavigationBar {
-        items.forEach { item ->
-            NavigationBarItem(
-                icon = { Icon(item.icon, contentDescription = item.label) },
-                label = { Text(item.label) },
-                selected = navController.currentBackStackEntry?.destination?.route == item.route,
-                onClick = {
-                    if (navController.currentBackStackEntry?.destination?.route != item.route) {
-                        navController.navigate(item.route) {
-                            popUpTo(navController.graph.startDestinationId) {
-                                saveState = true
-                            }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
-                },
-            )
-        }
-    }
-}
-
-data class BottomNavItem(
-    val label: String,
-    val route: String,
-    val icon: ImageVector,
-)

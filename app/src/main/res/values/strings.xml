@@ -16,4 +16,37 @@
     <string name="views_count">%1$s переглядів</string>
     <string name="live_badge">LIVE</string>
     <string name="channel_avatar">Аватар каналу: %1$s</string>
+
+    <string name="tab_home">Головна</string>
+    <string name="tab_shorts">Shorts</string>
+    <string name="tab_search">Пошук</string>
+    <string name="tab_subscriptions">Підписки</string>
+    <string name="tab_you">Ви</string>
+
+    <string name="you_guest">Гість</string>
+    <string name="you_guest_subtitle">Історія та підписки з’являться після входу в Google</string>
+    <string name="you_history">Історія переглядів</string>
+    <string name="you_subscriptions">Підписки</string>
+    <string name="you_settings">Налаштування</string>
+    <string name="you_about">Про застосунок</string>
+
+    <string name="subscriptions_title">Підписки</string>
+    <string name="subscriptions_signed_out_title">Підписки з’являться після входу в Google</string>
+    <string name="subscriptions_signed_out_body">Вхід у Google буде додано в наступному оновленні.</string>
+
+    <string name="notifications_title">Сповіщення</string>
+    <string name="notifications_signed_out">Сповіщення з’являться після входу в Google.</string>
+
+    <string name="history_title">Історія переглядів</string>
+    <string name="history_empty">Історія порожня</string>
+    <string name="history_empty_body">Відео, які ви переглянули, з’являться тут.</string>
+
+    <string name="about_title">Про NewTube</string>
+    <string name="about_version">Версія %1$s</string>
+    <string name="about_instance">Invidious: %1$s</string>
+    <string name="about_legal">NewTube не пов’язаний із YouTube чи Google. Відео відтворюються через публічні інстанси Invidious.</string>
+
+    <string name="search_hint">Пошук на YouTube</string>
+    <string name="search_clear">Очистити</string>
+    <string name="search_empty">Нічого не знайдено</string>
 </resources>

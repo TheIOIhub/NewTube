@@ -33,7 +33,7 @@ import com.example.newtube.model.Channel
 import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.UiState
-import com.example.newtube.ui.common.VideoListItem
+import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.formatCount
 
 @Composable
@@ -80,7 +80,7 @@ private fun ChannelContent(
             )
         }
         items(state.videos, key = { it.id }) { video ->
-            VideoListItem(
+            VideoCard(
                 video = video,
                 onClick = { videoId -> navController.navigate("watch/$videoId") },
                 onChannelClick = { id -> navController.navigate("channel/$id") },
