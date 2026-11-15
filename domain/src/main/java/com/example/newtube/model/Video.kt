@@ -10,4 +10,5 @@ data class Video(
     val views: Long,
     val uploadedAt: String,
     val isLive: Boolean,
+    val authorAvatarUrl: String = "",
 )

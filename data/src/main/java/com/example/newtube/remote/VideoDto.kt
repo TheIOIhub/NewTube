@@ -22,6 +22,7 @@ data class VideoDto(
     val title: String = "",
     val author: String = "",
     val authorId: String = "",
+    val authorThumbnails: List<ThumbnailDto> = emptyList(),
     val videoThumbnails: List<ThumbnailDto> = emptyList(),
     val description: String = "",
     val publishedText: String = "",

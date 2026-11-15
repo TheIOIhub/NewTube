@@ -478,6 +478,50 @@ class VideoRepositoryImplTest {
             assertTrue(page1.map { it.id }.toSet() != page2.map { it.id }.toSet())
         }
 
+    @Test
+    fun `getTrending picks the largest avatar at or below 176 px`() =
+        runBlocking {
+            val dto =
+                videoDto(id = "1").copy(
+                    authorThumbnails =
+                        listOf(
+                            ThumbnailDto(url = "https://example.com/32.jpg", width = 32, height = 32),
+                            ThumbnailDto(url = "https://example.com/176.jpg", width = 176, height = 176),
+                            ThumbnailDto(url = "https://example.com/512.jpg", width = 512, height = 512),
+                        ),
+                )
+            coEvery { service.getTrending(any(), any()) } returns listOf(dto)
+            coJustRun { dao.insertAll(any()) }
+
+            assertEquals("https://example.com/176.jpg", repository.getTrending().single().authorAvatarUrl)
+        }
+
+    @Test
+    fun `avatar falls back to the largest available when every size is above 176`() =
+        runBlocking {
+            val dto =
+                videoDto(id = "1").copy(
+                    authorThumbnails =
+                        listOf(
+                            ThumbnailDto(url = "https://example.com/512.jpg", width = 512, height = 512),
+                            ThumbnailDto(url = "https://example.com/900.jpg", width = 900, height = 900),
+                        ),
+                )
+            coEvery { service.getTrending(any(), any()) } returns listOf(dto)
+            coJustRun { dao.insertAll(any()) }
+
+            assertEquals("https://example.com/900.jpg", repository.getTrending().single().authorAvatarUrl)
+        }
+
+    @Test
+    fun `missing author thumbnails map to an empty avatar`() =
+        runBlocking {
+            coEvery { service.getTrending(any(), any()) } returns listOf(videoDto(id = "1"))
+            coJustRun { dao.insertAll(any()) }
+
+            assertEquals("", repository.getTrending().single().authorAvatarUrl)
+        }
+
     private fun adaptiveVideo(
         url: String,
         qualityLabel: String,

@@ -16,6 +16,7 @@ import com.example.newtube.remote.ChannelDto
 import com.example.newtube.remote.CommentDto
 import com.example.newtube.remote.FormatStreamDto
 import com.example.newtube.remote.InvidiousService
+import com.example.newtube.remote.ThumbnailDto
 import com.example.newtube.remote.VideoDto
 import com.example.newtube.repository.VideoRepository
 import kotlinx.coroutines.Dispatchers
@@ -285,6 +286,13 @@ class VideoRepositoryImpl @Inject constructor(
      * recommendations come without any `type` at all, so a whitelist would drop
      * perfectly playable entries.
      */
+    /** Largest avatar at or below 176 px; anything bigger is a last resort. */
+    private fun List<ThumbnailDto>.avatarUrl(): String {
+        val usable = filter { it.url.isNotBlank() }
+        val preferred = usable.filter { it.width in 1..176 }
+        return (preferred.maxByOrNull { it.width } ?: usable.maxByOrNull { it.width })?.url.orEmpty()
+    }
+
     private fun VideoDto.toEntityOrNull(): VideoEntity? {
         val id = videoId
         if (id.isNullOrBlank()) return null
@@ -293,6 +301,7 @@ class VideoRepositoryImpl @Inject constructor(
             title = title,
             channelName = author,
             channelId = authorId,
+            authorAvatarUrl = authorThumbnails.avatarUrl(),
             thumbnailUrl = videoThumbnails.maxByOrNull { it.width }?.url.orEmpty(),
             duration = lengthSeconds,
             views = viewCount,
@@ -307,6 +316,7 @@ class VideoRepositoryImpl @Inject constructor(
             title = title,
             channelName = channelName,
             channelId = channelId,
+            authorAvatarUrl = authorAvatarUrl,
             thumbnailUrl = thumbnailUrl,
             duration = duration,
             views = views,
