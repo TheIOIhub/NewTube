@@ -9,6 +9,7 @@ android {
     compileSdk = 34
     defaultConfig {
         minSdk = 24
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
             "INVIDIOUS_BASE_URL",

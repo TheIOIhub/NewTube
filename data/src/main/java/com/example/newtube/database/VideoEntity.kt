@@ -1,5 +1,6 @@
 package com.example.newtube.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -9,6 +10,8 @@ data class VideoEntity(
     val title: String,
     val channelName: String,
     val channelId: String = "",
+    @ColumnInfo(defaultValue = "")
+    val authorAvatarUrl: String = "",
     val thumbnailUrl: String,
     val duration: Long,
     val views: Long,
