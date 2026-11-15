@@ -12,4 +12,8 @@
     <string name="theme_system">Системна</string>
     <string name="theme_dark">Темна</string>
     <string name="theme_light">Світла</string>
+
+    <string name="views_count">%1$s переглядів</string>
+    <string name="live_badge">LIVE</string>
+    <string name="channel_avatar">Аватар каналу: %1$s</string>
 </resources>
