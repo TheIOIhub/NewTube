@@ -31,4 +31,8 @@ class DataStorePlaybackPositionRepository @Inject constructor(
             preferences[longPreferencesKey(videoId)] = positionMs
         }
     }
+
+    override suspend fun clearAll() {
+        context.playbackDataStore.edit { it.clear() }
+    }
 }
