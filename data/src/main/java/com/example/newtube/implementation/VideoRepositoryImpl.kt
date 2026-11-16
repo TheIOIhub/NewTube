@@ -293,19 +293,21 @@ class VideoRepositoryImpl @Inject constructor(
     private fun VideoDto.toDomainOrNull(): Video? = toEntityOrNull()?.toDomain()
 
     /**
-     * Feed and search responses are mixed: channels and playlists carry no
-     * `videoId` and are skipped. The `type` field is deliberately not used as a
-     * filter: Invidious labels live broadcasts `livestream` (not `video`), and
-     * recommendations come without any `type` at all, so a whitelist would drop
-     * perfectly playable entries.
+     * Largest avatar at or below 176 px; anything bigger is a last resort.
      */
-    /** Largest avatar at or below 176 px; anything bigger is a last resort. */
     private fun List<ThumbnailDto>.avatarUrl(): String {
         val usable = filter { it.url.isNotBlank() }
         val preferred = usable.filter { it.width in 1..176 }
         return (preferred.maxByOrNull { it.width } ?: usable.maxByOrNull { it.width })?.url.orEmpty()
     }
 
+    /**
+     * Feed and search responses are mixed: channels and playlists carry no
+     * `videoId` and are skipped. The `type` field is deliberately not used as a
+     * filter: Invidious labels live broadcasts `livestream` (not `video`), and
+     * recommendations come without any `type` at all, so a whitelist would drop
+     * perfectly playable entries.
+     */
     private fun VideoDto.toEntityOrNull(): VideoEntity? {
         val id = videoId
         if (id.isNullOrBlank()) return null

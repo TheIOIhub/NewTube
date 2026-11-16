@@ -84,7 +84,7 @@ fun SearchScreen(
             is UiState.Error -> ErrorScreen(state.message, onRetry = viewModel::retry)
             is UiState.Success ->
                 if (state.data.isEmpty()) {
-                    EmptyScreen(stringResource(R.string.search_empty))
+                    if (query.isNotBlank()) EmptyScreen(stringResource(R.string.search_empty))
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(state.data, key = { it.id }) { video ->
