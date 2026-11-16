@@ -28,7 +28,22 @@ fun NavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
         modifier = modifier,
     ) {
         composable("home") { HomeScreen(navController) }
-        composable("shorts") { ShortsScreen(navController) }
+        composable(
+            route = "shorts?videoId={videoId}",
+            arguments =
+                listOf(
+                    navArgument("videoId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+        ) { entry ->
+            ShortsScreen(
+                navController = navController,
+                startVideoId = entry.arguments?.getString("videoId"),
+            )
+        }
         composable(
             route = "search?focus={focus}",
             arguments =

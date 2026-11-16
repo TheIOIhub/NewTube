@@ -48,11 +48,16 @@ import com.google.android.exoplayer2.ui.AspectRatioFrameLayout
 @Composable
 fun ShortsScreen(
     navController: NavController,
+    startVideoId: String? = null,
     viewModel: ShortsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val sources by viewModel.playbackSources.collectAsState()
     val playbackErrors by viewModel.playbackErrors.collectAsState()
+
+    LaunchedEffect(startVideoId) {
+        if (startVideoId != null) viewModel.startFrom(startVideoId)
+    }
 
     when (val state = uiState) {
         UiState.Loading -> LoadingScreen()
@@ -82,6 +87,16 @@ private fun ShortsPager(
     navController: NavController,
 ) {
     val pagerState = rememberPagerState(pageCount = { videos.size })
+
+    val requestedStartId by viewModel.requestedStartId.collectAsState()
+    val targetIndex = if (requestedStartId == null) -1 else videos.indexOfFirst { it.id == requestedStartId }
+
+    LaunchedEffect(requestedStartId, targetIndex, videos.size) {
+        if (requestedStartId != null && targetIndex >= 0) {
+            pagerState.scrollToPage(targetIndex)
+            viewModel.consumeStartRequest()
+        }
+    }
 
     LaunchedEffect(pagerState.currentPage, videos.size) {
         val video = videos.getOrNull(pagerState.currentPage) ?: return@LaunchedEffect

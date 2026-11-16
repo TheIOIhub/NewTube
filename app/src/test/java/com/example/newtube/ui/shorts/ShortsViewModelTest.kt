@@ -6,7 +6,9 @@ import com.example.newtube.model.VideoDetails
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -15,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -117,6 +120,76 @@ class ShortsViewModelTest {
             val state = viewModel.uiState.value as UiState.Success
             assertEquals(12, state.data.size)
             assertEquals("12", state.data.last().id)
+        }
+
+    @Test
+    fun `startFrom prepends a clip that is missing from the feed`() =
+        runTest {
+            val feed = video("feed1")
+            val requested = video("requested")
+            coEvery { repository.getShorts(1) } returns listOf(feed)
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoById("requested") } returns requested
+
+            val viewModel = ShortsViewModel(repository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.startFrom("requested")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val data = (viewModel.uiState.value as UiState.Success).data
+            assertEquals(listOf("requested", "feed1"), data.map { it.id })
+        }
+
+    @Test
+    fun `startFrom does not fetch a clip that is already in the feed`() =
+        runTest {
+            coEvery { repository.getShorts(1) } returns listOf(video("feed1"))
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.startFrom("feed1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 0) { repository.getVideoById(any()) }
+        }
+
+    @Test
+    fun `startFrom while the feed is loading is applied after reload`() =
+        runTest {
+            val firstPage = CompletableDeferred<List<Video>>()
+            coEvery { repository.getShorts(1) } coAnswers { firstPage.await() }
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoById("requested") } returns video("requested")
+
+            val viewModel = ShortsViewModel(repository)
+            viewModel.startFrom("requested")
+            firstPage.complete(listOf(video("feed1")))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val data = (viewModel.uiState.value as UiState.Success).data
+            assertEquals("requested", data.first().id)
+        }
+
+    @Test
+    fun `consumeStartRequest stops a restored tab from jumping again`() =
+        runTest {
+            coEvery { repository.getShorts(1) } returns listOf(video("feed1"))
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoById("requested") } returns video("requested")
+
+            val viewModel = ShortsViewModel(repository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.startFrom("requested")
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.consumeStartRequest()
+
+            assertNull(viewModel.requestedStartId.value)
+
+            coVerify(exactly = 1) { repository.getVideoById("requested") }
+            viewModel.startFrom("requested")
+            testDispatcher.scheduler.advanceUntilIdle()
+            coVerify(exactly = 1) { repository.getVideoById("requested") }
         }
 
     private fun video(id: String) =

@@ -81,11 +81,11 @@ fun HomeScreen(
                 item(key = "shorts-shelf") {
                     ShortsShelf(
                         videos = shelf,
-                        onOpen = {
-                            // Task 10 upgrades this to a positioned deep link.
-                            navController.navigate("shorts") {
+                        onOpen = { videoId ->
+                            navController.navigate("shorts?videoId=$videoId") {
                                 popUpTo(navController.graph.startDestinationId) { saveState = true }
                                 launchSingleTop = true
+                                restoreState = true
                             }
                         },
                     )

@@ -35,8 +35,44 @@ class ShortsViewModel @Inject constructor(
     private var loading = false
     private var reachedEnd = false
 
+    private val _requestedStartId = MutableStateFlow<String?>(null)
+    val requestedStartId: StateFlow<String?> = _requestedStartId
+
+    /** The last id handed to the pager; keeps a restored tab from jumping twice. */
+    private var handledStartId: String? = null
+
     init {
         reload()
+    }
+
+    /**
+     * A Home shelf tap asks the tab to open at this clip. If the clip is not in
+     * the loaded feed yet, fetch it once and prepend it, so the pager can start
+     * at index 0 without waiting for the whole Shorts rotation.
+     */
+    fun startFrom(videoId: String) {
+        if (videoId == handledStartId) return
+        if (_requestedStartId.value == videoId) return
+        _requestedStartId.value = videoId
+        val current = _uiState.value as? UiState.Success ?: return
+        if (current.data.any { it.id == videoId }) return
+        viewModelScope.launch { prependRequested() }
+    }
+
+    /** Called by the pager after it jumped to [requestedStartId]. */
+    fun consumeStartRequest() {
+        handledStartId = _requestedStartId.value
+        _requestedStartId.value = null
+    }
+
+    private suspend fun prependRequested() {
+        val id = _requestedStartId.value ?: return
+        val current = _uiState.value as? UiState.Success ?: return
+        if (current.data.any { it.id == id }) return
+        val requested = runCatching { repository.getVideoById(id) }.getOrNull() ?: return
+        val latest = _uiState.value as? UiState.Success ?: return
+        _uiState.value =
+            UiState.Success(listOf(requested) + latest.data.filterNot { it.id == id })
     }
 
     fun reload() {
@@ -59,7 +95,14 @@ class ShortsViewModel @Inject constructor(
                 if (collected.isEmpty()) {
                     _uiState.value = UiState.Error(NO_SHORTS_MESSAGE)
                 } else {
-                    _uiState.value = UiState.Success(collected.distinctBy { it.id })
+                    var result = collected.distinctBy { it.id }
+                    val requestedId = _requestedStartId.value
+                    if (requestedId != null && result.none { it.id == requestedId }) {
+                        runCatching { repository.getVideoById(requestedId) }.getOrNull()?.let {
+                            result = listOf(it) + result
+                        }
+                    }
+                    _uiState.value = UiState.Success(result)
                 }
             } catch (e: Exception) {
                 _uiState.value = UiState.Error(e.toUserMessage())
