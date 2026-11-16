@@ -32,36 +32,39 @@ class WatchHistoryDaoTest {
     }
 
     @Test
-    fun upsertReplacesTheSameVideoAndObservesNewestFirst() = runBlocking {
-        dao.upsert(entry("a", 1))
-        dao.upsert(entry("b", 2))
-        dao.upsert(entry("a", 3))
+    fun upsertReplacesTheSameVideoAndObservesNewestFirst() =
+        runBlocking {
+            dao.upsert(entry("a", 1))
+            dao.upsert(entry("b", 2))
+            dao.upsert(entry("a", 3))
 
-        val rows = dao.observeRecent(500).first()
+            val rows = dao.observeRecent(500).first()
 
-        assertEquals(listOf("a", "b"), rows.map { it.videoId })
-        assertEquals(3L, rows.first().watchedAt)
-    }
-
-    @Test
-    fun trimKeepsOnlyTheNewestRows() = runBlocking {
-        dao.upsert(entry("a", 1))
-        dao.upsert(entry("b", 2))
-        dao.upsert(entry("c", 3))
-
-        dao.trim(2)
-
-        assertEquals(listOf("c", "b"), dao.observeRecent(500).first().map { it.videoId })
-    }
+            assertEquals(listOf("a", "b"), rows.map { it.videoId })
+            assertEquals(3L, rows.first().watchedAt)
+        }
 
     @Test
-    fun clearRemovesEverything() = runBlocking {
-        dao.upsert(entry("a", 1))
+    fun trimKeepsOnlyTheNewestRows() =
+        runBlocking {
+            dao.upsert(entry("a", 1))
+            dao.upsert(entry("b", 2))
+            dao.upsert(entry("c", 3))
 
-        dao.clear()
+            dao.trim(2)
 
-        assertEquals(emptyList<WatchHistoryEntity>(), dao.observeRecent(500).first())
-    }
+            assertEquals(listOf("c", "b"), dao.observeRecent(500).first().map { it.videoId })
+        }
+
+    @Test
+    fun clearRemovesEverything() =
+        runBlocking {
+            dao.upsert(entry("a", 1))
+
+            dao.clear()
+
+            assertEquals(emptyList<WatchHistoryEntity>(), dao.observeRecent(500).first())
+        }
 
     private fun entry(id: String, watchedAt: Long) =
         WatchHistoryEntity(

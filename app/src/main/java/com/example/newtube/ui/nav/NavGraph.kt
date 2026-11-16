@@ -31,7 +31,13 @@ fun NavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
         composable("shorts") { ShortsScreen(navController) }
         composable(
             route = "search?focus={focus}",
-            arguments = listOf(navArgument("focus") { type = NavType.BoolType; defaultValue = false }),
+            arguments =
+                listOf(
+                    navArgument("focus") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
+                ),
         ) { entry ->
             SearchScreen(
                 navController = navController,
