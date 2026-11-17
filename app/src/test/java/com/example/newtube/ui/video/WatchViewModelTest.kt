@@ -52,7 +52,7 @@ class WatchViewModelTest {
     fun `details and the saved position are exposed`() =
         runTest {
             val details = details()
-            coEvery { repository.getVideoDetails("v1") } returns details
+            coEvery { repository.getVideoDetails("v1", 720) } returns details
             coEvery { playbackPositions.positionFor("v1") } returns 124_000L
 
             val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
@@ -65,7 +65,7 @@ class WatchViewModelTest {
     @Test
     fun `failure is exposed as an error`() =
         runTest {
-            coEvery { repository.getVideoDetails("v1") } throws IOException("offline")
+            coEvery { repository.getVideoDetails("v1", 720) } throws IOException("offline")
 
             val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
             viewModel.load("v1")
@@ -77,7 +77,7 @@ class WatchViewModelTest {
     @Test
     fun `position is persisted for the current video`() =
         runTest {
-            coEvery { repository.getVideoDetails("v1") } returns details()
+            coEvery { repository.getVideoDetails("v1", 720) } returns details()
             coEvery { playbackPositions.positionFor("v1") } returns 0L
             coEvery { playbackPositions.savePosition("v1", 42_000L) } returns Unit
 
@@ -94,7 +94,7 @@ class WatchViewModelTest {
     fun `a successful load records the video once`() =
         runTest {
             val details = details()
-            coEvery { repository.getVideoDetails("v1") } returns details
+            coEvery { repository.getVideoDetails("v1", 720) } returns details
             coEvery { playbackPositions.positionFor("v1") } returns 0L
 
             val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
@@ -108,7 +108,7 @@ class WatchViewModelTest {
     fun `recording is skipped when the setting is off`() =
         runTest {
             every { settings.settings } returns flowOf(AppSettings(recordHistory = false))
-            coEvery { repository.getVideoDetails("v1") } returns details()
+            coEvery { repository.getVideoDetails("v1", 720) } returns details()
             coEvery { playbackPositions.positionFor("v1") } returns 0L
 
             val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
@@ -121,9 +121,23 @@ class WatchViewModelTest {
     @Test
     fun `a history failure does not break the watch screen`() =
         runTest {
-            coEvery { repository.getVideoDetails("v1") } returns details()
+            coEvery { repository.getVideoDetails("v1", 720) } returns details()
             coEvery { playbackPositions.positionFor("v1") } returns 0L
             coEvery { history.record(any()) } throws IllegalStateException("db")
+
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value is UiState.Success)
+        }
+
+    @Test
+    fun `the saved maximum quality is passed to the repository`() =
+        runTest {
+            every { settings.settings } returns flowOf(AppSettings(defaultQuality = 1080))
+            coEvery { repository.getVideoDetails("v1", 1080) } returns details()
+            coEvery { playbackPositions.positionFor("v1") } returns 0L
 
             val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
             viewModel.load("v1")

@@ -3,6 +3,7 @@ package com.example.newtube.ui.video
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.VideoDetails
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.PlaybackPositionRepository
@@ -49,7 +50,10 @@ class WatchViewModel @Inject constructor(
         _uiState.value = UiState.Loading
         viewModelScope.launch {
             try {
-                val details = repository.getVideoDetails(videoId)
+                val maxHeight =
+                    runCatching { settingsRepository.settings.first().defaultQuality }
+                        .getOrDefault(AppSettings.DEFAULT_QUALITY)
+                val details = repository.getVideoDetails(videoId, maxHeight)
                 val position = playbackPositions.positionFor(videoId)
                 _uiState.value = UiState.Success(WatchUiState(details, position))
                 runCatching {

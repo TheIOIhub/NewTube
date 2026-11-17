@@ -4,6 +4,7 @@ import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.ChannelEntity
 import com.example.newtube.database.VideoDao
 import com.example.newtube.database.VideoEntity
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.Channel
 import com.example.newtube.model.ChannelVideosPage
 import com.example.newtube.model.Comment
@@ -233,12 +234,12 @@ class VideoRepositoryImpl @Inject constructor(
                 ?: service.getVideoDetails(videoId).toDomainVideo()
         }
 
-    override suspend fun getVideoDetails(videoId: String): VideoDetails =
+    override suspend fun getVideoDetails(videoId: String, maxHeight: Int): VideoDetails =
         withContext(Dispatchers.IO) {
             val dto = service.getVideoDetails(videoId)
             val video = dto.toDomainVideo()
             val playback =
-                dto.toPlaybackSource()
+                dto.toPlaybackSource(maxHeight)
                     ?: throw IllegalStateException("No playable stream returned for video $videoId")
             VideoDetails(
                 video = video,
@@ -348,39 +349,43 @@ class VideoRepositoryImpl @Inject constructor(
      * VOD is the opposite: on the default instance the HLS variant playlists
      * point at YouTube slice URLs (`/govp/slices=…`) that answer 403, while the
      * adaptive DASH tracks (`videoplayback?…&range=`) answer 206. So for VOD the
-     * order is: a progressive `formatStreams` entry (already contains audio),
-     * then a merged adaptive pair (one video + one audio track), and only then
-     * the HLS manifest as a last resort.
+     * order is: a progressive `formatStreams` entry within the quality cap
+     * (already contains audio), then a merged adaptive pair (one video + one
+     * audio track), then a progressive track above the cap as a last resort,
+     * and only then the HLS manifest.
      */
-    private fun VideoDto.toPlaybackSource(): PlaybackSource? {
+    private fun VideoDto.toPlaybackSource(maxHeight: Int): PlaybackSource? {
+        val cap = maxHeight.takeIf { it > 0 } ?: AppSettings.DEFAULT_QUALITY
         val isLive = liveNow || type == "livestream"
         if (isLive) {
             hlsUrl?.takeIf { it.isNotBlank() }?.let { return PlaybackSource.Hls(it) }
         }
 
-        formatStreams.firstPlayableUrl()?.let { return PlaybackSource.Progressive(it) }
+        formatStreams.firstPlayableUrl(cap)?.let { return PlaybackSource.Progressive(it) }
 
-        val videoUrl = adaptiveFormats.bestVideoUrl()
+        val videoUrl = adaptiveFormats.bestVideoUrl(cap)
         val audioUrl = adaptiveFormats.bestAudioUrl()
         if (videoUrl != null && audioUrl != null) return PlaybackSource.Merged(videoUrl, audioUrl)
 
+        // Last resort: accept a progressive track above the cap, then HLS.
+        formatStreams.firstPlayableUrl()?.let { return PlaybackSource.Progressive(it) }
         return hlsUrl?.takeIf { it.isNotBlank() }?.let { PlaybackSource.Hls(it) }
     }
 
     /**
-     * Prefers a hardware-friendly `avc1` track capped at 720p (the phone does
-     * not need more) and falls back to the smallest available resolution when
-     * everything is above the cap. `av01` entries are only used when no `avc1`
-     * track exists, since hardware decoding depends on the device.
+     * Prefers a hardware-friendly `avc1` track at or below [maxHeight] and falls
+     * back to the smallest available resolution when everything is above the
+     * cap. `av01` entries are only used when no `avc1` track exists, since
+     * hardware decoding depends on the device.
      */
-    private fun List<FormatStreamDto>.bestVideoUrl(): String? {
+    private fun List<FormatStreamDto>.bestVideoUrl(maxHeight: Int): String? {
         val candidates =
             filter {
                 !it.url.isNullOrBlank() && it.type?.startsWith("video/mp4") == true
             }
         if (candidates.isEmpty()) return null
 
-        val capped = candidates.filter { (it.heightOrNull() ?: Int.MAX_VALUE) <= PREFERRED_MAX_HEIGHT }
+        val capped = candidates.filter { (it.heightOrNull() ?: Int.MAX_VALUE) <= maxHeight }
         val pool = capped.ifEmpty { candidates }
         val byQuality =
             if (capped.isNotEmpty()) {
@@ -405,8 +410,12 @@ class VideoRepositoryImpl @Inject constructor(
 
     private fun FormatStreamDto.isAvc(): Boolean = type?.contains("avc1") == true
 
-    private fun List<FormatStreamDto>.firstPlayableUrl(): String? =
-        firstOrNull { !it.url.isNullOrBlank() }?.url
+    private fun List<FormatStreamDto>.firstPlayableUrl(maxHeight: Int? = null): String? =
+        firstOrNull { format ->
+            val height = format.heightOrNull()
+            !format.url.isNullOrBlank() &&
+                (maxHeight == null || height == null || height <= maxHeight)
+        }?.url
 
     private fun CommentDto.toDomainOrNull(): Comment? {
         val id = commentId ?: return null
@@ -443,7 +452,6 @@ class VideoRepositoryImpl @Inject constructor(
         )
 
     private companion object {
-        const val PREFERRED_MAX_HEIGHT = 720
         const val HOME_FEED_LIMIT = 60
         const val TOPIC_QUERY_COUNT = 3
         const val ALL_TOPIC_QUERY_COUNT = 2

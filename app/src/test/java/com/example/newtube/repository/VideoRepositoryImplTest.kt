@@ -3,6 +3,7 @@ package com.example.newtube.repository
 import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.VideoDao
 import com.example.newtube.implementation.VideoRepositoryImpl
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.remote.ChannelSearchDto
@@ -82,7 +83,7 @@ class VideoRepositoryImplTest {
             coEvery { service.getVideoDetails("1") } returns dto
             coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("1")
+            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
 
             assertEquals(PlaybackSource.Progressive("https://example.com/progressive.mp4"), details.playback)
         }
@@ -103,7 +104,7 @@ class VideoRepositoryImplTest {
             coEvery { service.getVideoDetails("1") } returns dto
             coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("1")
+            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
 
             assertEquals(
                 PlaybackSource.Merged(
@@ -131,7 +132,7 @@ class VideoRepositoryImplTest {
             coEvery { service.getVideoDetails("live1") } returns dto
             coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("live1")
+            val details = repository.getVideoDetails("live1", AppSettings.DEFAULT_QUALITY)
 
             assertEquals(PlaybackSource.Hls("https://example.com/live.m3u8"), details.playback)
         }
@@ -147,7 +148,7 @@ class VideoRepositoryImplTest {
             coEvery { service.getVideoDetails("1") } returns dto
             coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("1")
+            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
 
             assertEquals(PlaybackSource.Hls("https://example.com/manifest"), details.playback)
         }
@@ -166,7 +167,7 @@ class VideoRepositoryImplTest {
             coEvery { service.getVideoDetails("1") } returns dto
             coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("1")
+            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
 
             assertEquals(
                 PlaybackSource.Merged(
@@ -189,7 +190,7 @@ class VideoRepositoryImplTest {
             coEvery { service.getVideoDetails("1") } returns dto
             coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("1")
+            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
 
             assertEquals("About the video", details.description)
             assertEquals(1, details.related.size)
@@ -257,7 +258,7 @@ class VideoRepositoryImplTest {
             coEvery { service.getVideoDetails("live1") } returns dto
             coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("live1")
+            val details = repository.getVideoDetails("live1", AppSettings.DEFAULT_QUALITY)
 
             assertEquals("live1", details.video.id)
             assertTrue(details.video.isLive)
@@ -549,6 +550,86 @@ class VideoRepositoryImplTest {
             coJustRun { dao.insertAll(any()) }
 
             assertEquals(3, repository.getShortsShelf(limit = 3).size)
+        }
+
+    @Test
+    fun `getVideoDetails respects a 480p cap`() =
+        runBlocking {
+            val dto =
+                videoDto(id = "1").copy(
+                    adaptiveFormats =
+                        listOf(
+                            adaptiveVideo("https://example.com/360.mp4", "360p", "avc1.4D401E"),
+                            adaptiveVideo("https://example.com/480.mp4", "480p", "avc1.4D401F"),
+                            adaptiveVideo("https://example.com/720.mp4", "720p", "avc1.4D401F"),
+                            adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
+                        ),
+                )
+            coEvery { service.getVideoDetails("1") } returns dto
+            coJustRun { dao.insertAll(any()) }
+
+            assertEquals(
+                PlaybackSource.Merged(
+                    videoUrl = "https://example.com/480.mp4",
+                    audioUrl = "https://example.com/audio.m4a",
+                ),
+                repository.getVideoDetails("1", maxHeight = 480).playback,
+            )
+        }
+
+    @Test
+    fun `getVideoDetails allows 1080p when the cap is 1080`() =
+        runBlocking {
+            val dto =
+                videoDto(id = "1").copy(
+                    adaptiveFormats =
+                        listOf(
+                            adaptiveVideo("https://example.com/720.mp4", "720p", "avc1.4D401F"),
+                            adaptiveVideo("https://example.com/1080.mp4", "1080p", "avc1.640028"),
+                            adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
+                        ),
+                )
+            coEvery { service.getVideoDetails("1") } returns dto
+            coJustRun { dao.insertAll(any()) }
+
+            assertEquals(
+                PlaybackSource.Merged(
+                    videoUrl = "https://example.com/1080.mp4",
+                    audioUrl = "https://example.com/audio.m4a",
+                ),
+                repository.getVideoDetails("1", maxHeight = 1080).playback,
+            )
+        }
+
+    @Test
+    fun `a progressive track above the cap is skipped when adaptive is available`() =
+        runBlocking {
+            val dto =
+                videoDto(id = "1").copy(
+                    formatStreams =
+                        listOf(
+                            FormatStreamDto(
+                                url = "https://example.com/progressive-720.mp4",
+                                type = "video/mp4",
+                                qualityLabel = "720p",
+                            ),
+                        ),
+                    adaptiveFormats =
+                        listOf(
+                            adaptiveVideo("https://example.com/adaptive-360.mp4", "360p", "avc1.4D401E"),
+                            adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
+                        ),
+                )
+            coEvery { service.getVideoDetails("1") } returns dto
+            coJustRun { dao.insertAll(any()) }
+
+            assertEquals(
+                PlaybackSource.Merged(
+                    videoUrl = "https://example.com/adaptive-360.mp4",
+                    audioUrl = "https://example.com/audio.m4a",
+                ),
+                repository.getVideoDetails("1", maxHeight = 480).playback,
+            )
         }
 
     private fun adaptiveVideo(

@@ -79,7 +79,7 @@ class ShortsViewModelTest {
             val short = video("1")
             coEvery { repository.getShorts(1) } returns listOf(short)
             coEvery { repository.getShorts(2) } returns emptyList()
-            coEvery { repository.getVideoDetails("1") } returns
+            coEvery { repository.getVideoDetails("1", 720) } returns
                 VideoDetails(
                     video = short,
                     description = "",
@@ -96,6 +96,33 @@ class ShortsViewModelTest {
 
             assertEquals(
                 mapOf("1" to PlaybackSource.Hls("https://example.com/manifest")),
+                viewModel.playbackSources.value,
+            )
+        }
+
+    @Test
+    fun `shorts use the saved maximum quality`() =
+        runTest {
+            every { settings.settings } returns flowOf(AppSettings(defaultQuality = 480))
+            val short = video("1")
+            coEvery { repository.getShorts(1) } returns listOf(short)
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoDetails("1", 480) } returns
+                VideoDetails(
+                    video = short,
+                    description = "",
+                    related = emptyList(),
+                    playback = PlaybackSource.Progressive("https://example.com/480.mp4"),
+                )
+
+            val viewModel = ShortsViewModel(repository, settings, history)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.ensurePlayback("1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                mapOf("1" to PlaybackSource.Progressive("https://example.com/480.mp4")),
                 viewModel.playbackSources.value,
             )
         }

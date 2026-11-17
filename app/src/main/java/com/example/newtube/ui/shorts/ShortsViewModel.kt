@@ -2,6 +2,7 @@ package com.example.newtube.ui.shorts
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.repository.HistoryRepository
@@ -166,7 +167,10 @@ class ShortsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                val playback = repository.getVideoDetails(videoId).playback
+                val maxHeight =
+                    runCatching { settingsRepository.settings.first().defaultQuality }
+                        .getOrDefault(AppSettings.DEFAULT_QUALITY)
+                val playback = repository.getVideoDetails(videoId, maxHeight).playback
                 _playbackSources.value = _playbackSources.value + (videoId to playback)
             } catch (e: Exception) {
                 requestedSources -= videoId

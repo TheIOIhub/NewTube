@@ -1,5 +1,6 @@
 package com.example.newtube.repository
 
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.Channel
 import com.example.newtube.model.ChannelVideosPage
 import com.example.newtube.model.CommentPage
@@ -24,7 +25,10 @@ interface VideoRepository {
 
     suspend fun getVideoById(videoId: String): Video
 
-    suspend fun getVideoDetails(videoId: String): VideoDetails
+    suspend fun getVideoDetails(
+        videoId: String,
+        maxHeight: Int = AppSettings.DEFAULT_QUALITY,
+    ): VideoDetails
 
     suspend fun getChannelDetails(channelId: String): Channel
 
