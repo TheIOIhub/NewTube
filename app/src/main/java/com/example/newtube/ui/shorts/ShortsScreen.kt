@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,6 +58,10 @@ fun ShortsScreen(
 
     LaunchedEffect(startVideoId) {
         if (startVideoId != null) viewModel.startFrom(startVideoId)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { viewModel.cancelPendingRecord() }
     }
 
     when (val state = uiState) {
@@ -104,6 +109,13 @@ private fun ShortsPager(
         if (pagerState.currentPage >= videos.size - LOAD_MORE_THRESHOLD) {
             viewModel.loadMore()
         }
+    }
+
+    // History starts on the settled page: currentPage changes mid-swipe and
+    // would count a clip the user is only passing through.
+    LaunchedEffect(pagerState.settledPage, videos.size) {
+        val video = videos.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
+        viewModel.onPageSettled(video)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

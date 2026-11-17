@@ -1,16 +1,22 @@
 package com.example.newtube.ui.shorts
 
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
+import com.example.newtube.repository.HistoryRepository
+import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import io.mockk.coEvery
+import io.mockk.coJustRun
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -25,11 +31,15 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShortsViewModelTest {
     private val repository: VideoRepository = mockk()
+    private val history: HistoryRepository = mockk(relaxed = true)
+    private val settings: SettingsRepository = mockk()
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        every { settings.settings } returns flowOf(AppSettings())
+        coJustRun { history.record(any()) }
     }
 
     @After
@@ -46,7 +56,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(2) } returns listOf(second)
             coEvery { repository.getShorts(3) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(UiState.Success(listOf(first, second)), viewModel.uiState.value)
@@ -57,7 +67,7 @@ class ShortsViewModelTest {
         runTest {
             coEvery { repository.getShorts(any()) } throws IllegalStateException("boom")
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertTrue(viewModel.uiState.value is UiState.Error)
@@ -77,7 +87,7 @@ class ShortsViewModelTest {
                     playback = PlaybackSource.Hls("https://example.com/manifest"),
                 )
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.ensurePlayback("1")
@@ -95,7 +105,7 @@ class ShortsViewModelTest {
         runTest {
             coEvery { repository.getShorts(any()) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertTrue(viewModel.uiState.value is UiState.Error)
@@ -112,7 +122,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(4) } returns listOf(initial[0]) // duplicate only
             coEvery { repository.getShorts(5) } returns listOf(video("12"))
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.loadMore()
             testDispatcher.scheduler.advanceUntilIdle()
@@ -131,7 +141,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(2) } returns emptyList()
             coEvery { repository.getVideoById("requested") } returns requested
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.startFrom("requested")
             testDispatcher.scheduler.advanceUntilIdle()
@@ -146,7 +156,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(1) } returns listOf(video("feed1"))
             coEvery { repository.getShorts(2) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.startFrom("feed1")
             testDispatcher.scheduler.advanceUntilIdle()
@@ -162,7 +172,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(2) } returns emptyList()
             coEvery { repository.getVideoById("requested") } returns video("requested")
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             viewModel.startFrom("requested")
             firstPage.complete(listOf(video("feed1")))
             testDispatcher.scheduler.advanceUntilIdle()
@@ -178,7 +188,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(2) } returns emptyList()
             coEvery { repository.getVideoById("requested") } returns video("requested")
 
-            val viewModel = ShortsViewModel(repository)
+            val viewModel = ShortsViewModel(repository, settings, history)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.startFrom("requested")
             testDispatcher.scheduler.advanceUntilIdle()
@@ -190,6 +200,63 @@ class ShortsViewModelTest {
             viewModel.startFrom("requested")
             testDispatcher.scheduler.advanceUntilIdle()
             coVerify(exactly = 1) { repository.getVideoById("requested") }
+        }
+
+    @Test
+    fun `a settled short is recorded after three seconds`() =
+        runTest {
+            val short = video("1")
+            coEvery { repository.getShorts(1) } returns listOf(short)
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageSettled(short)
+            testDispatcher.scheduler.advanceTimeBy(2_999)
+            coVerify(exactly = 0) { history.record(any()) }
+
+            testDispatcher.scheduler.advanceTimeBy(2)
+            coVerify(exactly = 1) { history.record(short) }
+        }
+
+    @Test
+    fun `swiping before three seconds cancels the pending record`() =
+        runTest {
+            val first = video("1")
+            val second = video("2")
+            coEvery { repository.getShorts(1) } returns listOf(first, second)
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageSettled(first)
+            testDispatcher.scheduler.advanceTimeBy(2_000)
+            viewModel.onPageSettled(second)
+            testDispatcher.scheduler.advanceTimeBy(2_000)
+            coVerify(exactly = 0) { history.record(any()) }
+
+            testDispatcher.scheduler.advanceTimeBy(1_001)
+            coVerify(exactly = 1) { history.record(second) }
+        }
+
+    @Test
+    fun `cancelPendingRecord drops a clipped watch when the tab is left`() =
+        runTest {
+            val short = video("1")
+            coEvery { repository.getShorts(1) } returns listOf(short)
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageSettled(short)
+            testDispatcher.scheduler.advanceTimeBy(1_000)
+            viewModel.cancelPendingRecord()
+            testDispatcher.scheduler.advanceTimeBy(5_000)
+
+            coVerify(exactly = 0) { history.record(any()) }
         }
 
     private fun video(id: String) =

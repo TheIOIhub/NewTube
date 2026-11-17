@@ -1,15 +1,22 @@
 package com.example.newtube.ui.video
 
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
+import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.PlaybackPositionRepository
+import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import io.mockk.coEvery
+import io.mockk.coJustRun
+import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -25,11 +32,15 @@ import java.io.IOException
 class WatchViewModelTest {
     private val repository: VideoRepository = mockk()
     private val playbackPositions: PlaybackPositionRepository = mockk()
+    private val history: HistoryRepository = mockk(relaxed = true)
+    private val settings: SettingsRepository = mockk()
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        every { settings.settings } returns flowOf(AppSettings())
+        coJustRun { history.record(any()) }
     }
 
     @After
@@ -44,7 +55,7 @@ class WatchViewModelTest {
             coEvery { repository.getVideoDetails("v1") } returns details
             coEvery { playbackPositions.positionFor("v1") } returns 124_000L
 
-            val viewModel = WatchViewModel(repository, playbackPositions)
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
             viewModel.load("v1")
             testDispatcher.scheduler.advanceUntilIdle()
 
@@ -56,7 +67,7 @@ class WatchViewModelTest {
         runTest {
             coEvery { repository.getVideoDetails("v1") } throws IOException("offline")
 
-            val viewModel = WatchViewModel(repository, playbackPositions)
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
             viewModel.load("v1")
             testDispatcher.scheduler.advanceUntilIdle()
 
@@ -70,13 +81,55 @@ class WatchViewModelTest {
             coEvery { playbackPositions.positionFor("v1") } returns 0L
             coEvery { playbackPositions.savePosition("v1", 42_000L) } returns Unit
 
-            val viewModel = WatchViewModel(repository, playbackPositions)
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
             viewModel.load("v1")
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.savePosition(42_000L)
             testDispatcher.scheduler.advanceUntilIdle()
 
             io.mockk.coVerify { playbackPositions.savePosition("v1", 42_000L) }
+        }
+
+    @Test
+    fun `a successful load records the video once`() =
+        runTest {
+            val details = details()
+            coEvery { repository.getVideoDetails("v1") } returns details
+            coEvery { playbackPositions.positionFor("v1") } returns 0L
+
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 1) { history.record(details.video) }
+        }
+
+    @Test
+    fun `recording is skipped when the setting is off`() =
+        runTest {
+            every { settings.settings } returns flowOf(AppSettings(recordHistory = false))
+            coEvery { repository.getVideoDetails("v1") } returns details()
+            coEvery { playbackPositions.positionFor("v1") } returns 0L
+
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 0) { history.record(any()) }
+        }
+
+    @Test
+    fun `a history failure does not break the watch screen`() =
+        runTest {
+            coEvery { repository.getVideoDetails("v1") } returns details()
+            coEvery { playbackPositions.positionFor("v1") } returns 0L
+            coEvery { history.record(any()) } throws IllegalStateException("db")
+
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value is UiState.Success)
         }
 
     private fun details() =

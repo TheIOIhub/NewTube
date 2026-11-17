@@ -4,18 +4,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
+import com.example.newtube.repository.HistoryRepository
+import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.toUserMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class ShortsViewModel @Inject constructor(
     private val repository: VideoRepository,
+    private val settingsRepository: SettingsRepository,
+    private val historyRepository: HistoryRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<UiState<List<Video>>>(UiState.Loading)
     val uiState: StateFlow<UiState<List<Video>>> = _uiState
@@ -34,6 +41,7 @@ class ShortsViewModel @Inject constructor(
     private var nextPage = 1
     private var loading = false
     private var reachedEnd = false
+    private var historyJob: Job? = null
 
     private val _requestedStartId = MutableStateFlow<String?>(null)
     val requestedStartId: StateFlow<String?> = _requestedStartId
@@ -167,9 +175,28 @@ class ShortsViewModel @Inject constructor(
         }
     }
 
+    /** Leaving the Shorts tab must not record a clip that was only passing by. */
+    fun cancelPendingRecord() {
+        historyJob?.cancel()
+    }
+
+    fun onPageSettled(video: Video) {
+        historyJob?.cancel()
+        historyJob =
+            viewModelScope.launch {
+                delay(SHORTS_HISTORY_DELAY_MS)
+                runCatching {
+                    if (settingsRepository.settings.first().recordHistory) {
+                        historyRepository.record(video)
+                    }
+                }
+            }
+    }
+
     private companion object {
         const val MIN_SHORTS = 10
         const val MAX_PAGE_ATTEMPTS = 3
         const val NO_SHORTS_MESSAGE = "No shorts available right now"
+        const val SHORTS_HISTORY_DELAY_MS = 3_000L
     }
 }
