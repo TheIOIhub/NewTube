@@ -13,6 +13,25 @@
     <string name="theme_dark">Темна</string>
     <string name="theme_light">Світла</string>
 
+    <string name="settings_history">Історія</string>
+    <string name="settings_record_history">Записувати перегляди</string>
+    <string name="settings_record_history_summary">Додавати переглянуті відео до локальної історії</string>
+    <string name="settings_use_remote_history">Показувати історію YouTube</string>
+    <string name="settings_use_remote_history_disabled">Доступно після входу в Google</string>
+    <string name="settings_clear_history">Очистити історію переглядів</string>
+    <string name="settings_clear_history_title">Очистити історію?</string>
+    <string name="settings_clear_history_body">Буде видалено локальну історію переглядів, а також збережені позиції відтворення.</string>
+    <string name="settings_clear">Очистити</string>
+
+    <string name="settings_playback">Відтворення</string>
+    <string name="settings_max_quality">Максимальна якість</string>
+    <string name="quality_480">480p</string>
+    <string name="quality_720">720p</string>
+    <string name="quality_1080">1080p</string>
+
+    <string name="settings_about">Про застосунок</string>
+    <string name="about_account_note">Функції акаунта використовують TV OAuth Google; YouTube може будь-коли скасувати сесію.</string>
+
     <string name="views_count">%1$s переглядів</string>
     <string name="live_badge">LIVE</string>
     <string name="channel_avatar">Аватар каналу: %1$s</string>
