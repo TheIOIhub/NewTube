@@ -4,20 +4,24 @@
 
 ## Features
 
-* **Home** – category chips (All, Music, Gaming, Movies, Sports, News, Technology); each feed mixes trending, popular and topic searches (`/api/v1/trending`, `/api/v1/popular`, `/api/v1/search`), deduplicated and shuffled on every load, with a refresh button and loading/error/empty states.
-* **Shorts** – full-screen vertical swipe player, one autoplaying clip per page. Invidious has no Shorts feed and `#shorts` search returns landscape clips, so the tab discovers Shorts channels with `type=channel` search and plays their real vertical clips from `/api/v1/channels/{id}/shorts` (1–180 s, no live), with a refresh button to reshuffle.
+* **Five-tab shell** – Головна, Shorts, Пошук, Підписки and Ви in one bottom bar (white-on-dark labels, no selected pill); the bar hides on Watch, Settings, History and About so player and detail screens get the full height.
+* **Home** – YouTube-style feed: brand top bar (logo, refresh, notifications, search), category chips (All, Music, Gaming, Movies, Sports, News, Technology), a horizontal **Shorts shelf** with portrait tiles, skeleton cards while loading and video cards with a 36 dp channel avatar, duration/LIVE badge and Ukrainian view counts. Each feed mixes trending, popular and topic searches (`/api/v1/trending`, `/api/v1/popular`, `/api/v1/search`), deduplicated and shuffled on every load.
+* **Shorts** – full-screen vertical swipe player, one autoplaying clip per page. Invidious has no Shorts feed and `#shorts` search returns landscape clips, so the tab discovers Shorts channels with `type=channel` search and plays their real vertical clips from `/api/v1/channels/{id}/shorts` (1–180 s, no live), with a refresh button to reshuffle. A shelf tap opens the tab on that exact clip.
 * **Search** – live search over `/api/v1/search?type=video&page=N` with a 500 ms debounce and pagination on scroll.
 * **Channel view** – avatar, name, subscriber count, description and uploads paged by `continuation`; navigation uses the real `UC…` channel id.
 * **Watch screen** – player at the top (16:9), title, views/date, channel row, expandable description, comments button and related videos.
 * **Comments** – top-level comments with avatars, total count, pinned badge and `continuation` paging.
 * **Video player** – ExoPlayer: HLS manifest with progressive/merged-DASH fallbacks, quality menu (auto / ≤ Np), fullscreen, picture-in-picture and resume position.
-* **Room caching** – fetched videos and channels are persisted (Room v2 with an automatic migration).
-* **DataStore** – per-video playback position.
+* **Watch history** – every watch (a Shorts clip only after 3 seconds on the page) is upserted into a local Room table, newest first, with the channel avatar and relative watch time; tapping a row reopens the video.
+* **Settings** – Вигляд (system/dark/light theme, applied immediately and kept across restarts), Історія (record-watch switch, YouTube-history placeholder until Google sign-in, confirmed clear that also drops resume positions), Відтворення (maximum quality 480p/720p/1080p, default 720p) and Про застосунок.
+* **Theme** – dark by default when the system is dark, full light palette, purple brand accent, matching system bars and XML splash colours.
+* **Room caching** – fetched videos and channels are persisted (Room v3: `channelId` and `authorAvatarUrl` on videos, plus the `watch_history` table and `2→3` migration).
+* **DataStore** – per-video playback position and the settings above.
 * **Material 3** UI, MVVM, Hilt DI, 3‑module Clean Architecture.
 
 ### Not implemented yet
 
-Read‑through/offline caching, dark‑mode toggle, runtime instance switch, subscriptions, subtitles, live/DVR handling, comment replies, UI/instrumentation tests. Full list: [`TASKS.md`](TASKS.md).
+Read‑through/offline caching, runtime instance switch, Google account features (subscriptions, notifications and YouTube history stay honest signed-out placeholders), subtitles, live/DVR handling, comment replies, UI tests and the release signing pipeline. Full list: [`TASKS.md`](TASKS.md).
 
 ## Requirements
 
@@ -70,9 +74,9 @@ ui/      Reserved Android library for shared Compose components (empty)
 
 ## Roadmap
 
-1.0.0 – three tabs with Home category feeds, search, channel screen, watch screen with player controls and comments, plus full-screen Shorts from real vertical clips.
+1.0.0 – five tabs (Головна, Shorts, Пошук, Підписки, Ви) with YouTube-style Home cards and a Shorts shelf, search, channel screen, watch screen with player controls and comments, full-screen Shorts from real vertical clips, local watch history, dark/light theme and a complete Settings screen.
 
-Next releases add bug fixes (see [`TASKS.md`](TASKS.md)) plus offline caching, subtitles, dark‑mode preference, playlists and subscriptions.
+Next releases add Google account integration (TV device-code OAuth + InnerTube for subscriptions, notifications and YouTube history), offline caching, subtitles, playlists and the release pipeline (see [`TASKS.md`](TASKS.md)).
 
 ## Documentation
 

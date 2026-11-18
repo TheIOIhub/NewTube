@@ -48,17 +48,37 @@ Legend: ✅ done · ⚠️ partial · ⏳ not started
 |40| Shorts built from real `/channels/{id}/shorts` of channels discovered by name search: `1..180` s, no live, dedupe, 3 channels per page, curated fallback, reshuffle | ✅ |
 |41| Home category chips (All/Music/Gaming/Movies/Sports/News/Technology) with in-memory per-category cache and stale-response protection | ✅ |
 |42| Shorts refresh button; empty feed becomes an error with Retry; a page of already-shown ids no longer ends the feed | ✅ |
+|43| Theme: dark/light palettes, system bars, XML splash colours, `values-night`, purple accent | ✅ |
+|44| DataStore settings (`ThemeMode`, record/remote history, default quality 480/720/1080) + `SettingsRepository` | ✅ |
+|45| Settings screen with theme picker; `NewTubeTopBar` variants and Ukrainian strings | ✅ |
+|46| Room v3: `watch_history` table, `videos.authorAvatarUrl`, `MIGRATION_2_3`, schemas `2.json`/`3.json` | ✅ |
+|47| Channel avatars mapped from `authorThumbnails` (largest ≤176 px) | ✅ |
+|48| YouTube-style `VideoCard`, `ChannelAvatar`, metadata line; shared across Home/Search/Channel/Watch | ✅ |
+|49| Home Shorts shelf from one lightweight `#shorts` search | ✅ |
+|50| Five-tab shell (Головна, Shorts, Пошук, Підписки, Ви); You/Subscriptions/Notifications/History/About screens; bar hidden on detail screens | ✅ |
+|51| Home redesign: brand top bar, category chips, Shorts shelf, skeletons, empty/error states | ✅ |
+|52| Open the Shorts tab at a specific clip from a shelf tile (`shorts?videoId=…`) | ✅ |
+|53| Local watch history repository (upsert, 500-row trim, clear) + `clearAll()` for resume positions | ✅ |
+|54| Record watches from Watch and Shorts (3 s settle, cancel on tab exit), gated by the setting | ✅ |
+|55| History screen backed by Room with relative Ukrainian timestamps | ✅ |
+|56| Complete Settings: history switches, confirmed clear (also resume positions), maximum quality, About | ✅ |
+|57| Maximum-quality cap applied to stream selection (`getVideoDetails(videoId, maxHeight)`) | ✅ |
+|58| Formatter edge-case tests, docs update and final device QA pass | ✅ |
+
+## Phase 1–3 plan
+
+Tasks 43–58 were executed from [`docs/superpowers/plans/2026-11-12-youtube-home-ui-and-local-history.md`](docs/superpowers/plans/2026-11-12-youtube-home-ui-and-local-history.md); the binding design is [`docs/superpowers/specs/2026-11-12-youtube-home-account-design.md`](docs/superpowers/specs/2026-11-12-youtube-home-account-design.md). Progress notes and task-by-task rulings live in `.superpowers/sdd/2026-11-12-youtube-home-ui-and-local-history/progress.md`.
 
 ## Next Steps (planned)
 
-1. **Read‑through caching** – serve lists from Room when offline, add `NetworkBoundResource`‑style repository methods.
-2. **DataStore preferences** – dark mode toggle, default quality, instance URL override at runtime.
-3. **Live stream metadata** – surface `liveNow`, live badges and DVR handling.
-4. **Comment interactions** – replies, likes, sorting.
-5. **UI tests** for navigation flows and player controls (Compose test rule); manual device pass on a real APK.
-6. **Cleanup** – remove the stale root `src/` folder and decide whether the empty `ui` module is still needed.
-7. **Release** – add `LICENSE` (MIT), signing config, `assembleRelease`, tagged 1.0.0.
-8. **Feature: channel subscriptions** – database for the subscription list.
+1. **Google account (Plan 2)** – TV device-code OAuth, encrypted token store, InnerTube client for subscriptions, notifications and YouTube history; replaces the signed-out placeholders in `SubscriptionsScreen`, `NotificationsScreen` and the You header. Gated on the Phase 0 device-code spike.
+2. **Read‑through caching** – serve lists from Room when offline, add `NetworkBoundResource`‑style repository methods.
+3. **Runtime instance switch** – choose/validate an Invidious base URL in Settings instead of a build flag.
+4. **Live stream metadata** – surface `liveNow`, live badges and DVR handling.
+5. **Comment interactions** – replies, likes, sorting.
+6. **UI tests** for navigation flows and player controls (Compose test rule); keep the manual device pass.
+7. **Cleanup** – remove the stale root `src/` folder and decide whether the empty `ui` module is still needed.
+8. **Release** – add `LICENSE` (MIT), signing config, `assembleRelease`, tagged 1.0.0.
 
 > All tasks will be tracked in this markdown and updated as they complete.
 
