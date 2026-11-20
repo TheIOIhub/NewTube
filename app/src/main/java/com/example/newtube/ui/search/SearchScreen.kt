@@ -35,9 +35,9 @@ import androidx.navigation.NavController
 import com.example.newtube.R
 import com.example.newtube.ui.common.EmptyScreen
 import com.example.newtube.ui.common.ErrorScreen
-import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
+import com.example.newtube.ui.common.VideoCardSkeleton
 
 @Composable
 fun SearchScreen(
@@ -80,7 +80,10 @@ fun SearchScreen(
         }
 
         when (val state = uiState) {
-            UiState.Loading -> LoadingScreen()
+            UiState.Loading ->
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(SEARCH_SKELETON_COUNT) { VideoCardSkeleton() }
+                }
             is UiState.Error -> ErrorScreen(state.message, onRetry = viewModel::retry)
             is UiState.Success ->
                 if (state.data.isEmpty()) {
@@ -117,3 +120,5 @@ fun SearchScreen(
         }
     }
 }
+
+private const val SEARCH_SKELETON_COUNT = 5

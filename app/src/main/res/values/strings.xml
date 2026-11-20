@@ -74,6 +74,16 @@
     <string name="home_empty">Тут поки немає відео</string>
     <string name="retry">Повторити</string>
 
+    <string name="watch_comments">Коментарі</string>
+    <string name="watch_related">Схожі відео</string>
+    <string name="watch_view_channel">Перейти на канал</string>
+    <string name="watch_show_more">Показати більше</string>
+    <string name="watch_show_less">Показати менше</string>
+
+    <string name="shorts_empty">На цьому інстансі не знайдено Shorts</string>
+    <string name="shorts_shuffle">Перемішати Shorts</string>
+    <string name="shorts_open">Відкрити</string>
+
     <string name="category_all">Усі</string>
     <string name="category_music">Музика</string>
     <string name="category_gaming">Ігри</string>

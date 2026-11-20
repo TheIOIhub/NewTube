@@ -2,7 +2,6 @@ package com.example.newtube.ui.video
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,11 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -30,12 +27,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import com.example.newtube.R
 import com.example.newtube.model.Video
+import com.example.newtube.ui.common.ChannelAvatar
 import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.LocalPipMode
@@ -125,7 +124,7 @@ private fun WatchContent(
                         onClick = { navController.navigate("comments/$videoId") },
                         modifier = Modifier.padding(horizontal = 16.dp),
                     ) {
-                        Text("Comments")
+                        Text(stringResource(R.string.watch_comments))
                     }
                 }
                 if (details.description.isNotBlank()) {
@@ -139,7 +138,7 @@ private fun WatchContent(
                 if (details.related.isNotEmpty()) {
                     item {
                         Text(
-                            text = "Related videos",
+                            text = stringResource(R.string.watch_related),
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
@@ -169,10 +168,9 @@ private fun VideoHeader(video: Video) {
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(modifier = Modifier.height(8.dp))
+        val views = stringResource(R.string.views_count, formatCount(video.views))
         Text(
-            text =
-                "${formatCount(video.views)} views • ${video.uploadedAt}" +
-                    if (video.isLive) " • LIVE" else "",
+            text = "$views • ${video.uploadedAt}" + if (video.isLive) " • LIVE" else "",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -189,20 +187,11 @@ private fun ChannelRow(video: Video, onClick: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier =
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = video.channelName.take(1).uppercase(),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        }
+        ChannelAvatar(
+            url = video.authorAvatarUrl,
+            name = video.channelName,
+            size = 40.dp,
+        )
         Spacer(modifier = Modifier.width(12.dp))
         Column {
             Text(
@@ -212,7 +201,7 @@ private fun ChannelRow(video: Video, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "View channel",
+                text = stringResource(R.string.watch_view_channel),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -241,7 +230,13 @@ private fun DescriptionBlock(description: String) {
         )
         if (description.length > 140) {
             TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "Show less" else "Show more")
+                Text(
+                    if (expanded) {
+                        stringResource(R.string.watch_show_less)
+                    } else {
+                        stringResource(R.string.watch_show_more)
+                    },
+                )
             }
         }
     }

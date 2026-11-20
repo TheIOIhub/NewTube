@@ -32,11 +32,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
+import com.example.newtube.R
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.ui.common.EmptyScreen
@@ -69,7 +71,7 @@ fun ShortsScreen(
         is UiState.Error -> ErrorScreen(state.message, onRetry = viewModel::reload)
         is UiState.Success ->
             if (state.data.isEmpty()) {
-                EmptyScreen("No shorts found on this instance")
+                EmptyScreen(stringResource(R.string.shorts_empty))
             } else {
                 ShortsPager(
                     videos = state.data,
@@ -147,7 +149,11 @@ private fun ShortsPager(
                     .padding(8.dp)
                     .background(Color.Black.copy(alpha = 0.35f), CircleShape),
         ) {
-            Icon(Icons.Default.Refresh, contentDescription = "Shuffle shorts", tint = Color.White)
+            Icon(
+                Icons.Default.Refresh,
+                contentDescription = stringResource(R.string.shorts_shuffle),
+                tint = Color.White,
+            )
         }
     }
 }
@@ -194,7 +200,7 @@ private fun ShortPage(
                 Text(text = playbackError, color = Color.White)
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onRetry) {
-                    Text("Retry")
+                    Text(stringResource(R.string.retry))
                 }
             }
         }
@@ -232,7 +238,7 @@ private fun ShortPage(
             onClick = onOpen,
             modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
         ) {
-            Text("Open", color = Color.White)
+            Text(stringResource(R.string.shorts_open), color = Color.White)
         }
     }
 }
