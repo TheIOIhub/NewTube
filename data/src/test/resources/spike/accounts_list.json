@@ -1,0 +1,129 @@
+﻿{
+  "responseContext": {
+    "visitorData":"REDACTED",
+    "serviceTrackingParams": [
+      {
+        "service": "GFEEDBACK",
+        "params": [
+          {
+            "key": "logged_in",
+            "value": "1"
+          }
+        ]
+      }
+    ],
+    "responseId": "IhMI_aCe8-2WmAMVxFnnBB1jYhO2",
+    "webResponseContextExtensionData": {
+      "webResponseContextPreloadData": {
+        "preloadMessageNames": [
+          "accountSectionListRenderer",
+          "accountItemSectionRenderer",
+          "accountItem"
+        ]
+      },
+      "hasDecorated": true
+    }
+  },
+  "contents": [
+    {
+      "accountSectionListRenderer": {
+        "contents": [
+          {
+            "accountItemSectionRenderer": {
+              "contents": [
+                {
+                  "accountItem": {
+                    "accountName": {
+                      "simpleText": "Test Account"
+                    },
+                    "accountPhoto": {
+                      "thumbnails": [
+                        {
+                          "url": "https://example.invalid/avatar.jpg",
+                          "width": 216,
+                          "height": 216
+                        }
+                      ]
+                    },
+                    "isSelected": true,
+                    "isDisabled": false,
+                    "mobileBanner": {
+                      "thumbnails": [
+                        {
+                          "url": "https://example.invalid/avatar.jpg",
+                          "width": 320,
+                          "height": 88
+                        },
+                        {
+                          "url": "https://example.invalid/avatar.jpg",
+                          "width": 640,
+                          "height": 175
+                        },
+                        {
+                          "url": "https://example.invalid/avatar.jpg",
+                          "width": 960,
+                          "height": 263
+                        },
+                        {
+                          "url": "https://example.invalid/avatar.jpg",
+                          "width": 1280,
+                          "height": 351
+                        },
+                        {
+                          "url": "https://example.invalid/avatar.jpg",
+                          "width": 1440,
+                          "height": 395
+                        }
+                      ]
+                    },
+                    "hasChannel": true,
+                    "serviceEndpoint": {
+                      "selectActiveIdentityEndpoint": {
+                        "supportedTokens": [
+                          {
+                            "accountStateToken": {
+                              "hasChannel": true,
+                              "isMerged": true,
+                              "obfuscatedGaiaId": "0"
+                            }
+                          },
+                          {
+                            "offlineCacheKeyToken": {
+                              "clientCacheKey": "0"
+                            }
+                          },
+                          {
+                            "datasyncIdToken": {
+                              "datasyncIdToken": "0||"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "accountByline": {
+                      "simpleText": "user@example.com"
+                    },
+                    "channelHandle": {
+                      "simpleText": "@test-channel"
+                    },
+                    "shouldShowPremiumLogo": false,
+                    "canSuperviseInForceKidsMode": true,
+                    "accountLogDirectiveInts": [
+                      3,
+                      9
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "selectText": {
+    "simpleText": "OK"
+  }
+}
+
+

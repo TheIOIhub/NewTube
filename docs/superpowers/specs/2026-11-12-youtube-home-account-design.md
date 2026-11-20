@@ -743,7 +743,13 @@ clear tokens, emit `SignedOut(reason = Expired)`.
   file `account_tokens`, `MasterKey` AES256_GCM. Keys: `refresh_token`,
   `access_token`, `expires_at`, `device_id`, `client_id`, `client_secret`,
   `client_fetched_at`, `account_json`.
-- Access token lives ~60 min. Refresh when `now >= expires_at − 5 min`.
+- Access token lifetime is **not** ~60 min on this setup: the Phase 0 spike received
+  `expires_in` values of 64 001 s (~17.8 h) and, after refresh, 67–85 k s
+  (~18.6–23.7 h). Still refresh when `now >= expires_at − 5 min` so the logic is
+  correct for any issued lifetime.
+- Refreshing does **not** rotate the refresh token (spike: no `refresh_token` in
+  the refresh response). Keep the stored one and only overwrite it when the
+  response actually contains a new value.
 - A single `Mutex` guards refresh; concurrent InnerTube calls wait for one
   refresh and reuse the result.
 - InnerTube `401` → force one refresh and retry the request once; second `401`
@@ -768,16 +774,22 @@ After a successful token exchange:
 POST https://www.youtube.com/youtubei/v1/account/accounts_list
 headers: Authorization: Bearer …, TV UA, Referer: https://www.youtube.com/tv
 body: TV context + {"accountReadMask":{
-        "returnOwner":true,"returnBrandAccounts":true,"returnPersonaAccounts":false}}
+        "returnOwner":true,"returnBrandAccounts":true,"returnPersonaAccounts":true}}
 ```
+
+`returnPersonaAccounts` must be **true**: the 2026-11-20 spike got HTTP 200 with an
+empty `contents` when it was `false`, and the full account item when it was `true`.
 
 Parse the first account with `hasChannel == true`:
 
-- `accountName` → name;
-- `accountByline` → email;
+- `accountName.simpleText` → name (a Text object, not a bare string);
+- `accountByline.simpleText` → email (also a Text object);
 - `accountPhoto.thumbnails` → largest avatar;
-- first `serviceEndpoint.selectActiveIdentityEndpoint.supportedTokens[]
-  .pageIdToken.pageId` → `pageId`.
+- optional `serviceEndpoint.selectActiveIdentityEndpoint.supportedTokens[]
+  .pageIdToken.pageId` → `pageId`. The spike's owner account had **no**
+  `pageIdToken` (only `accountStateToken`, `offlineCacheKeyToken`,
+  `datasyncIdToken`), so treat `pageId` as optional and never fail sign-in
+  without it; brand accounts may provide it.
 
 If there are multiple accounts (owner + brand accounts), phase 1 uses the first
 `isSelected` account, else the first. Store the profile JSON encrypted; the You
@@ -843,11 +855,23 @@ Notes:
 | Notifications | `browseId: "FEnotifications"` | best effort, first page only |
 | Profile | `/account/accounts_list` | see §17.5 |
 
-`FEhistory` may return the history grid under
-`contents.tvBrowseRenderer.content…gridRenderer`; `FEsubscriptions` returns a
-channel grid (`gridChannelRenderer`) with avatar, title and
-`navigationEndpoint.browseEndpoint.browseId`. Use the tolerant walker for both
-(channel items key off `browseId` starting with `UC` and a `title`).
+Both endpoints return `contents.tvBrowseRenderer` — **not** the web renderers
+(`videoRenderer`, `lockupViewModel`, `gridChannelRenderer`). Observed on
+2026-11-20:
+
+- `FEhistory`: `tvBrowseRenderer` → `tvSurfaceContentRenderer` →
+  `sectionListRenderer` → `shelfRenderer` → `horizontalListRenderer` →
+  `tileRenderer` items (16 on the first page, 2 continuation markers).
+- `FEsubscriptions`: `tvBrowseRenderer` → `tvSecondaryNavRenderer` →
+  `sections[].tvSecondaryNavSectionRenderer.tabs[].tabRenderer.content` →
+  `tvSurfaceContentRenderer` → `sectionListRenderer` → `shelfRenderer` →
+  `horizontalListRenderer` → `tileRenderer` (30 tiles, 29 `UC…` browse
+  endpoints, 54 continuation markers).
+
+Use the tolerant walker for both (channel items key off
+`browseEndpoint.browseId` starting with `UC` and a `title`). A signed-out
+`browse` with `FEhistory` answers **401**, so the error mapping in §18.3 matters
+even before sign-in UI work.
 
 ### 18.3 Errors
 
@@ -947,6 +971,31 @@ refreshed, stop and revisit this design with the user before Phase 4. Phases 1�
 (UI, local history) are unaffected and may proceed while the spike is pending.
 If the spike succeeds, record any request/header corrections in this document
 before planning phases 4–5.
+
+**Result (2026-11-20): PASSED.** Throwaway script:
+`.superpowers/sdd/2026-11-12-youtube-home-ui-and-local-history/spike/phase0.ps1`
+(gitignored, never product code).
+
+1. Scraping worked on the first try with the documented UA: `youtube.com/tv`
+   served `id="base-js" src="…/kabuki.base_cr.en_US…/m=base"` and the JS carried
+   the `clientId:"….apps.googleusercontent.com",<key>:"…"` pair.
+2. Device code issued (`expires_in 1800`, `interval 5`,
+   `verification_url https://www.google.com/device`) and approved by the user.
+3. Token exchange returned `access_token` + `refresh_token` (`expires_in 64001`).
+4. Refresh worked twice; no `refresh_token` rotation, lifetime 67–85 k s.
+5. `accounts_list` returned the account (name, email, 216 px avatar,
+   `hasChannel`, `isSelected`) once `returnPersonaAccounts` was `true`.
+6. Bearer `browse` returned real data: `FEhistory` 200 with 16 history tiles,
+   `FEsubscriptions` 200 with 30 channel tiles; the same request without
+   `Authorization` returns 401.
+
+Redacted fixtures are committed under `data/src/test/resources/spike/`
+(`accounts_list.json`, `browse_FEhistory.json`, `browse_FEsubscriptions.json`);
+profile name/email/avatar/gaia id were replaced with placeholders, tokens and
+`visitorData` are `REDACTED`. Corrections found by the spike are folded into
+§17.2, §17.4, §17.5 and §18.2 above. The MediaServiceCore `history.json` fixture
+mentioned in step 6 is not available in this workspace; the captured
+`browse_FEhistory.json` replaces it.
 
 ### Phase 1 — Foundations and theme
 - `ThemeMode`, dark/light schemes, `NewTubeTheme(darkTheme)`, system bars,
