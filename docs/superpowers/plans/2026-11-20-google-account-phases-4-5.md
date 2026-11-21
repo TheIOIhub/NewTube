@@ -586,6 +586,7 @@ git commit -m "feat: add the Google device-code login screen"
 - Create: `app/src/main/java/com/example/newtube/ui/you/YouViewModel.kt`
 - Modify: `app/src/main/java/com/example/newtube/ui/you/YouScreen.kt`
 - Modify: `app/src/main/java/com/example/newtube/ui/settings/SettingsViewModel.kt`, `SettingsScreen.kt`, `app/src/main/res/values/strings.xml`
+- Modify: `app/src/test/java/com/example/newtube/ui/settings/SettingsViewModelTest.kt` (constructor gains `AccountRepository`; add an account-state test)
 - Test: `app/src/test/java/com/example/newtube/ui/you/YouViewModelTest.kt`
 
 **Interfaces:**
@@ -619,6 +620,8 @@ class YouViewModelTest {
     }
 }
 ```
+
+Also update `SettingsViewModelTest`: add `private val account: AccountRepository = mockk(relaxed = true)`, `every { account.state } returns MutableStateFlow(AccountState.SignedOut)` in `setUp`, pass it as the fourth `viewModel()` argument, and add `settings exposes the account state` asserting `viewModel().account.value == AccountState.SignedOut`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
