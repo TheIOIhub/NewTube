@@ -48,8 +48,8 @@ YouTube data. Everything continues to work signed out.
    account profile in the Ви tab, sign-out, session-expiry recovery.
 6. **Real YouTube history.** Read-only list from InnerTube `FEhistory` with
    continuation pagination, falling back to local history.
-7. **Real subscriptions.** Channel grid from InnerTube `FEsubscriptions` with
-   continuation pagination; sign-in call-to-action when signed out.
+7. **Real subscriptions.** Recent-video feed from InnerTube `FEsubscriptions`
+   with continuation pagination; sign-in call-to-action when signed out.
 8. **Notifications screen.** Bell opens a best-effort InnerTube `FEnotifications`
    list; sign-in CTA when signed out. Empty state if YouTube returns nothing
    usable; never crash or block other work.
@@ -432,19 +432,23 @@ and the existing error/empty states. Search history is out of scope.
 
 ## 13. Subscriptions tab
 
-- **Signed out:** full-screen CTA: icon, "Увійдіть у Google, щоб бачити свої
-  підписки", primary button "Увійти", secondary text explaining that sign-in is
-  only used for account data. Button opens `login`.
-- **Signed in:** two-column `LazyVerticalGrid` of channels (72dp circular
-  avatar, name 2 lines, optional subscriber text), 16dp gaps. Tap opens
-  `channel/{channelId}` (Invidious data). Initial page from
+- **Signed out:** full-screen CTA: icon, "Увійдіть у Google, щоб бачити нові
+  відео з підписок", primary button "Увійти", secondary text explaining that
+  sign-in is only used for account data. Button opens `login`.
+- **Signed in:** two-column `LazyVerticalGrid` of **videos** from the account's
+  subscriptions: 16:9 thumbnail with duration badge, title 2 lines, channel
+  name, raw views/published text. Tap opens `watch/{id}`. Initial page from
   `FEsubscriptions`; append via continuation on scroll.
-- **Loading:** skeleton grid. **Error/empty:** message + retry / "Підписок
-  немає". **Session expired:** inline banner with "Увійти знову".
+- **Loading:** skeleton grid. **Error/empty:** message + retry / "Немає нових
+  відео з підписок". **Session expired:** inline banner with "Увійти знову".
 
-Subscriptions data comes from the account; no local cache is required. If the
-channel screen fails (Invidious doesn't know the id), show the standard channel
-error with retry.
+**Spike correction (2026-11-20):** the TV `FEsubscriptions` response is not a
+channel grid. The capture contains 29 `tileRenderer` video tiles from 11
+distinct channels and no `gridChannelRenderer`, so the tab shows recent videos
+from subscriptions (as the YouTube TV app does). Channel avatars/subscriber
+counts are not available from this endpoint and are not shown.
+
+Subscriptions data comes from the account; no local cache is required.
 
 ## 14. You tab
 
@@ -493,26 +497,35 @@ Tap opens Watch. Remote rows are not written to Room.
 ### 15.3 Remote parsing
 
 InnerTube `FEhistory` with the TV client returns
-`contents.tvBrowseRenderer.content…gridRenderer.items[].gridVideoRenderer`
-(confirmed in MediaServiceCore's captured fixture). Older/newer responses may
-use `videoRenderer`, `tileRenderer` or `tvhtml5VideoRenderer`. Parse
-**tolerantly** by walking the JSON tree for any object that has a `videoId`,
-rather than by binding one rigid Moshi shape:
+`contents.tvBrowseRenderer.content.tvSurfaceContentRenderer.content.gridRenderer.items[].tileRenderer`
+(2026-11-20 capture; the earlier `gridVideoRenderer` guess was wrong). Older or
+newer responses may use `videoRenderer`, `lockupViewModel` or
+`tvhtml5VideoRenderer`. Parse **tolerantly** and handle both shapes:
 
+- TV `tileRenderer`: video id from `onSelectCommand.watchEndpoint.videoId` or
+  `onSelectCommand.reelWatchEndpoint.videoId` (Shorts); title from
+  `metadata.tileMetadataRenderer.title`; thumbnail from
+  `header.tileHeaderRenderer.thumbnail.thumbnails` (Shorts:
+  `reelWatchEndpoint.thumbnail`); duration from the
+  `thumbnailOverlayTimeStatusRenderer` text (Shorts have an icon → 0); channel
+  name and raw views/published from `metadata.tileMetadataRenderer.lines[]`;
+- generic `videoRenderer`/`lockupViewModel` items keyed by `videoId` + `title`;
 - title: `title.simpleText` or `title.runs[].text` joined;
-- thumbnail: highest-resolution entry of `thumbnail.thumbnails`;
+- thumbnail: highest-resolution entry of `thumbnails`;
 - channel name: `shortBylineText` / `longBylineText` / `ownerText`;
-- channel id: first `browseEndpoint.browseId` starting with `UC` in the item;
-- views: `viewCountText.simpleText` (raw string, shown as-is);
-- published: `publishedTimeText.simpleText`;
+- channel id: first `browseEndpoint.browseId` starting with `UC` in the item
+  (on TV it lives inside the long-press menu);
+- views: `viewCountText.simpleText` or the first non-blank metadata line after
+  the channel line (raw string, shown as-is);
+- published: `publishedTimeText.simpleText` or the next non-blank metadata line;
 - duration: `lengthText.simpleText` parsed `h:mm:ss`/`m:ss`;
 - live: `badges[].metadataBadgeRenderer.style == "BADGE_STYLE_TYPE_LIVE_NOW"`
   or presence of `isLive`;
-- continuation: first `continuationCommand.token` found in
-  `continuations[]` or at the end of the content tree.
+- continuation: first `continuations[].nextContinuationData.continuation` (TV
+  shape), else `continuationCommand.token`.
 
 Deduplicate by `videoId`. Ignore items without a video id. This one parser also
-serves notifications (§19) and any future browse list.
+serves subscriptions (§13) and notifications (§19).
 
 ## 16. Data layer changes
 
@@ -850,8 +863,8 @@ Notes:
 
 | Feature | Body | Notes |
 |---|---|---|
-| History | `browseId: "FEhistory"` | paginate via continuation |
-| Subscriptions | `browseId: "FEsubscriptions"` | channel grid + continuation |
+| History | `browseId: "FEhistory"` | video feed (incl. Shorts) + continuation |
+| Subscriptions | `browseId: "FEsubscriptions"` | video feed + continuation |
 | Notifications | `browseId: "FEnotifications"` | best effort, first page only |
 | Profile | `/account/accounts_list` | see §17.5 |
 
@@ -860,16 +873,18 @@ Both endpoints return `contents.tvBrowseRenderer` — **not** the web renderers
 2026-11-20:
 
 - `FEhistory`: `tvBrowseRenderer` → `tvSurfaceContentRenderer` →
-  `sectionListRenderer` → `shelfRenderer` → `horizontalListRenderer` →
-  `tileRenderer` items (16 on the first page, 2 continuation markers).
+  `gridRenderer` → 15 `tileRenderer` items: 10 with
+  `onSelectCommand.watchEndpoint.videoId`, 5 Shorts with
+  `onSelectCommand.reelWatchEndpoint.videoId`; 2 continuation markers.
 - `FEsubscriptions`: `tvBrowseRenderer` → `tvSecondaryNavRenderer` →
   `sections[].tvSecondaryNavSectionRenderer.tabs[].tabRenderer.content` →
-  `tvSurfaceContentRenderer` → `sectionListRenderer` → `shelfRenderer` →
-  `horizontalListRenderer` → `tileRenderer` (30 tiles, 29 `UC…` browse
-  endpoints, 54 continuation markers).
+  `tvSurfaceContentRenderer` → `sectionListRenderer` → 6 `shelfRenderer`s →
+  `horizontalListRenderer` → 29 `tileRenderer` video tiles (27 unique videos),
+  54 continuation markers.
 
-Use the tolerant walker for both (channel items key off
-`browseEndpoint.browseId` starting with `UC` and a `title`). A signed-out
+Both feeds are **videos**: the subscription response has no channel grid, and
+the 11 distinct channels appear only as `UC…` browse endpoints inside each
+tile's long-press "go to channel" menu. Parse videos for both. A signed-out
 `browse` with `FEhistory` answers **401**, so the error mapping in §18.3 matters
 even before sign-in UI work.
 
@@ -985,8 +1000,9 @@ before planning phases 4–5.
 4. Refresh worked twice; no `refresh_token` rotation, lifetime 67–85 k s.
 5. `accounts_list` returned the account (name, email, 216 px avatar,
    `hasChannel`, `isSelected`) once `returnPersonaAccounts` was `true`.
-6. Bearer `browse` returned real data: `FEhistory` 200 with 16 history tiles,
-   `FEsubscriptions` 200 with 30 channel tiles; the same request without
+6. Bearer `browse` returned real data: `FEhistory` 200 with 15 tiles
+   (10 videos + 5 Shorts), `FEsubscriptions` 200 with 29 video tiles from
+   11 channels; the same request without
    `Authorization` returns 401.
 
 Redacted fixtures are committed under `data/src/test/resources/spike/`
