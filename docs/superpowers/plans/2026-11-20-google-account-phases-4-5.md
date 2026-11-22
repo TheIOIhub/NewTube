@@ -282,7 +282,7 @@ git commit -m "feat: add the OAuth device-code and token client"
   - `object InnerTubeParser { fun parseVideos(json: String): ParserResult<RemoteVideo>; fun parseAccount(json: String): UserAccount?; fun durationMs(text: String): Long }`
   - `data class ParserResult<T>(val items: List<T>, val continuation: String?)`
   - `interface InnerTubeService { suspend fun browseVideos(browseId: String, continuation: String? = null, accessToken: String): String; suspend fun browseSubscriptions(continuation: String? = null, accessToken: String): String; suspend fun fetchProfile(accessToken: String): String }`
-  - `class YouTubeInnerTubeService(private val client: OkHttpClient, private val pageIdProvider: () -> String?)` sets `X-Goog-Pageid` only when `pageIdProvider()` is non-null (owner accounts have none, brand accounts may). The client is injected with `@Named("innertube")`; `pageIdProvider` reads `account_json` through the store.
+  - `class YouTubeInnerTubeService(private val client: OkHttpClient, private val pageIdProvider: () -> String?, private val baseUrl: String = "https://www.youtube.com")` sets `X-Goog-Pageid` only when `pageIdProvider()` is non-null (owner accounts have none, brand accounts may). The client is injected with `@Named("innertube")`; `pageIdProvider` reads `account_json` through the store. Non-2xx answers throw `InnerTubeHttpException(code, …)` so the repository can map 401/403. The Fire TV UA is shared via `account/YouTubeTvUserAgent`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -344,9 +344,25 @@ class InnerTubeParserTest {
         val none = """{"a":{"title":{"simpleText":"no id"}}}"""
         assertEquals(0, InnerTubeParser.parseVideos("""{"contents":[$none]}""").items.size)
     }
+
+    @Test fun `reads tv tile metadata and the continuation`() {
+        val r = InnerTubeParser.parseVideos(history)
+        val tile = r.items.first { it.id == "icNX8x7hfCA" }
+        assertTrue(tile.title.startsWith("ІНОЗЕМЦІ"))
+        assertEquals(598_000L, tile.durationMs)
+        assertEquals("Подробиці", tile.channelName)
+        assertEquals("UC9SqppNMkijU0fCJRDDg9YA", tile.channelId)
+        assertTrue(tile.viewsText.startsWith("243"))
+        assertTrue(tile.thumbnailUrl.startsWith("https://i.ytimg.com/vi/icNX8x7hfCA/"))
+        assertEquals(false, tile.isLive)
+        assertEquals(
+            "4qmFsgI9EglGRWhpc3RvcnkaMENBRjZHM2x5WVRWb2QyOVBRMmQzU1d0UWVVRXlRVmxSZVV0TFJIVjNSUSUzRCUzRA%3D%3D",
+            r.continuation,
+        )
+    }
 }
 ```
-Add the same `resource(path)` helper as Task 1; these are pure JUnit tests (no `runTest`).
+Add the same `resource(path)` helper as Task 1; these are pure JUnit tests (no `runTest`). Fixtures start with a UTF-8 BOM, so the parser must strip `\uFEFF` before `Json.parseToJsonElement`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -372,7 +388,7 @@ Parse with `Json.parseToJsonElement` and walk the tree recursively. The TV respo
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: same command as Step 2. Expected: PASS (6 tests).
+Run: same command as Step 2. Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 

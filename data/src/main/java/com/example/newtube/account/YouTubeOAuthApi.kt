@@ -128,7 +128,7 @@ class YouTubeOAuthApi(
             Request.Builder()
                 .url(baseUrl.trimEnd('/') + path)
                 .header("Accept-Language", "en-US,en;q=0.9")
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", YouTubeTvUserAgent.VALUE)
                 .post(body.toString().toRequestBody(JSON))
                 .build()
         return client
@@ -153,10 +153,5 @@ class YouTubeOAuthApi(
         const val DEVICE_GRANT = "http://oauth.net/grant_type/device/1.0"
         const val SCOPE = "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content"
         val JSON = "application/json".toMediaType()
-        const val USER_AGENT =
-            "Mozilla/5.0 (Linux armeabi-v7a; Android 7.1.2; Fire OS 6.0) " +
-                "Cobalt/22.lts.3.306369-gold (unlike Gecko) v8/8.8.278.8-jit gles Starboard/13, " +
-                "Amazon_ATV_mediatek8695_2019/NS6294 (Amazon, AFTMM, Wireless) " +
-                "com.amazon.firetv.youtube/22.3.r2.v66.0"
     }
 }
