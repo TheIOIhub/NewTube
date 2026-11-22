@@ -182,15 +182,18 @@ git commit -m "feat: scrape YouTube TV client credentials with a 7-day encrypted
   - `data class Tokens(val accessToken: String, val refreshToken: String?, val expiresInSeconds: Long)`
   - `sealed interface TokenPoll { data class Granted(val tokens: Tokens) : TokenPoll; data object Pending; data object SlowDown; data object Denied; data object Expired }`
   - `interface OAuthApi { suspend fun requestDeviceCode(credentials: ClientCredentials, deviceId: String): DeviceCode; suspend fun pollToken(credentials: ClientCredentials, deviceCode: String): TokenPoll; suspend fun refresh(credentials: ClientCredentials, refreshToken: String): Tokens }`
+  - `class InvalidGrantException(message: String) : IOException(message)` — `refresh` throws it when the token endpoint answers `invalid_grant`; Task 4 catches it to sign out.
+  - `class YouTubeOAuthApi(private val client: OkHttpClient, private val baseUrl: String = "https://www.youtube.com") : OAuthApi` — `baseUrl` exists so the test can point at MockWebServer.
 
 - [ ] **Step 1: Write the failing test**
 
 ```kotlin
 class YouTubeOAuthApiTest {
     private val server = MockWebServer()
-    private val api = YouTubeOAuthApi(OkHttpClient())
+    private val creds = ClientCredentials("id.apps.googleusercontent.com", "secret")
+    private lateinit var api: YouTubeOAuthApi
 
-    @Before fun setUp() = server.start()
+    @Before fun setUp() { server.start(); api = YouTubeOAuthApi(OkHttpClient(), server.url("/").toString()) }
     @After fun tearDown() = server.shutdown()
 
     @Test fun `device code request carries the tv payload`() = runTest {
@@ -214,21 +217,31 @@ class YouTubeOAuthApiTest {
         assertEquals(TokenPoll.SlowDown, api.pollToken(creds, "dc"))
         server.enqueue(json("/oauth/token_denied.json", 400))
         assertEquals(TokenPoll.Denied, api.pollToken(creds, "dc"))
-        server.enqueue(json("""{"error":"expired_token"}""", 400))
+        server.enqueue(rawJson("""{"error":"expired_token"}""", 400))
         assertEquals(TokenPoll.Expired, api.pollToken(creds, "dc"))
     }
 
     @Test fun `refresh sends the refresh grant and keeps a null refresh token`() = runTest {
-        server.enqueue(json("""{"access_token":"a2","expires_in":66928,"token_type":"Bearer"}""", 200))
+        server.enqueue(rawJson("""{"access_token":"a2","expires_in":66928,"token_type":"Bearer"}""", 200))
         val t = api.refresh(creds, "r1")
         assertEquals("a2", t.accessToken)
         assertNull(t.refreshToken)
         assertTrue(server.takeRequest().body.readUtf8().contains("\"grant_type\":\"refresh_token\""))
     }
+
+    @Test fun `refresh maps invalid_grant to a typed exception`() = runTest {
+        server.enqueue(rawJson("""{"error":"invalid_grant"}""", 400))
+        try {
+            api.refresh(creds, "stale")
+            throw AssertionError("expected InvalidGrantException")
+        } catch (expected: InvalidGrantException) {
+            Unit
+        }
+    }
 }
 ```
 
-`json(path, code)` = `MockResponse().setResponseCode(code).setBody(resource(path)).addHeader("Content-Type", "application/json")`.
+`json(path, code)` = `MockResponse().setResponseCode(code).setBody(resource(path)).addHeader("Content-Type", "application/json")`; `rawJson(body, code)` is the same with an inline body. Start the server in `@Before` and build the API there from `server.url("/").toString()` (the port is only known after `start()`). Declare `private val creds = ClientCredentials("id.apps.googleusercontent.com", "secret")`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -237,11 +250,11 @@ Expected: FAIL — unresolved `YouTubeOAuthApi`.
 
 - [ ] **Step 3: Implement the OkHttp client**
 
-Add `testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")` to `data/build.gradle.kts`. Build JSON with `kotlinx.serialization` `buildJsonObject`, send to the fixed URLs, set `Content-Type: application/json`, the Cobalt UA, `Accept-Language: en-US,en;q=0.9`. Map 400 bodies by their `error` field; any other non-2xx throws `IOException`.
+Add `testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")` to `data/build.gradle.kts`. Build JSON with `kotlinx.serialization` `buildJsonObject`, send to `baseUrl + path`, set `Content-Type: application/json`, the Cobalt UA, `Accept-Language: en-US,en;q=0.9`. Map 400 bodies by their `error` field; any other non-2xx throws `IOException`. `invalid_grant` on refresh throws `InvalidGrantException`. Never attach a logging interceptor.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: same command as Step 2. Expected: PASS (3 tests).
+Run: same command as Step 2. Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -487,7 +500,7 @@ class AccountRepositoryImplTest {
 }
 ```
 
-Fakes live in the same test file: `FakeOAuthApi` (`pollResults: ArrayDeque<TokenPoll>`, `refreshCalls`, `refreshFailsWithInvalidGrant`), `FakeInnerTubeService` (`videosJson`, `subscriptionsJson`, `profileJson` loaded from the spy fixtures; `unauthorized`, `lastAuthorization`), `FakeClock(var now: Long)`, `InMemorySecretStore`, and `seedSignedIn(expiresAt)` writing `refresh_token`, `expires_at`, `account_json`.
+Fakes live in the same test file: `FakeOAuthApi` (`pollResults: ArrayDeque<TokenPoll>`, `refreshCalls`, `refreshFailsWithInvalidGrant` — when set, `refresh` throws `InvalidGrantException`), `FakeInnerTubeService` (`videosJson`, `subscriptionsJson`, `profileJson` loaded from the spy fixtures; `unauthorized`, `lastAuthorization`), `FakeClock(var now: Long)`, `InMemorySecretStore`, and `seedSignedIn(expiresAt)` writing `refresh_token`, `expires_at`, `account_json`.
 
 - [ ] **Step 2: Run test to verify it fails**
 

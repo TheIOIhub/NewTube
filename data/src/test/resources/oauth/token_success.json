@@ -1,0 +1,7 @@
+{
+  "access_token": "ya29.example-access-token",
+  "expires_in": 66928,
+  "refresh_token": "1//0example-refresh-token",
+  "scope": "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content",
+  "token_type": "Bearer"
+}
