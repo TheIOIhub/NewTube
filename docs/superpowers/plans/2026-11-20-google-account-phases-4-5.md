@@ -808,9 +808,11 @@ class HistoryViewModelTest {
     private val signedIn = AccountState.SignedIn(UserAccount("N", "e", "a"))
 
     @Before fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
         every { local.observeLocal() } returns flowOf(listOf(entry))
         every { settings.settings } returns flowOf(AppSettings())
     }
+    @After fun tearDown() { Dispatchers.resetMain() }
 
     @Test fun `signed out uses local history`() = runTest {
         every { account.state } returns MutableStateFlow(AccountState.SignedOut)

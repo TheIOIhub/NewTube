@@ -3,6 +3,7 @@ package com.example.newtube.ui.history
 import android.text.format.DateUtils
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,13 +11,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -30,10 +36,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import com.example.newtube.R
+import com.example.newtube.model.RemoteVideo
 import com.example.newtube.model.WatchHistoryEntry
 import com.example.newtube.ui.common.EmptyScreen
-import com.example.newtube.ui.common.LoadingScreen
-import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.shell.DetailTopBar
 
 @Composable
@@ -45,30 +50,134 @@ fun HistoryScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         DetailTopBar(
-            title = stringResource(R.string.history_title),
+            title =
+                stringResource(
+                    if (state.remoteSource) R.string.history_remote_subtitle else R.string.history_title,
+                ),
             onBack = { navController.popBackStack() },
         )
-        when (val current = state) {
-            UiState.Loading -> LoadingScreen()
-            // The local Room flow does not fail; render an error defensively
-            // without a dead "retry" button.
-            is UiState.Error -> EmptyScreen(message = current.message)
-            is UiState.Success ->
-                if (current.data.isEmpty()) {
-                    EmptyScreen(
-                        message = stringResource(R.string.history_empty),
-                        hint = stringResource(R.string.history_empty_body),
-                    )
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(current.data, key = { it.videoId }) { entry ->
-                            HistoryRow(
-                                entry = entry,
-                                onClick = { navController.navigate("watch/${entry.videoId}") },
-                            )
+        when {
+            state.expired ->
+                HistoryBanner(
+                    message = stringResource(R.string.session_expired),
+                    action = stringResource(R.string.session_expired_action),
+                    onAction = { navController.navigate("login") },
+                )
+            state.error ->
+                HistoryBanner(
+                    message = stringResource(R.string.login_error_network),
+                    action = stringResource(R.string.retry),
+                    onAction = viewModel::retry,
+                )
+        }
+        when {
+            state.remoteSource && state.remote.isEmpty() ->
+                EmptyScreen(
+                    message = stringResource(R.string.history_empty),
+                    hint = stringResource(R.string.history_empty_body),
+                )
+            state.remoteSource ->
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(state.remote, key = { _, video -> video.id }) { index, video ->
+                        RemoteHistoryRow(
+                            video = video,
+                            onClick = { navController.navigate("watch/${video.id}") },
+                        )
+                        if (index == state.remote.lastIndex) {
+                            LaunchedEffect(video.id) { viewModel.loadMore() }
+                        }
+                    }
+                    if (state.loadingMore) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                            }
                         }
                     }
                 }
+            state.local.isEmpty() ->
+                EmptyScreen(
+                    message = stringResource(R.string.history_empty),
+                    hint = stringResource(R.string.history_empty_body),
+                )
+            else ->
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(state.local, key = { it.videoId }) { entry ->
+                        HistoryRow(
+                            entry = entry,
+                            onClick = { navController.navigate("watch/${entry.videoId}") },
+                        )
+                    }
+                }
+        }
+    }
+}
+
+@Composable
+private fun HistoryBanner(
+    message: String,
+    action: String,
+    onAction: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onAction) {
+            Text(action)
+        }
+    }
+}
+
+@Composable
+private fun RemoteHistoryRow(
+    video: RemoteVideo,
+    onClick: () -> Unit,
+) {
+    val metadata =
+        listOfNotNull(
+            video.channelName.takeIf { it.isNotBlank() },
+            video.viewsText.takeIf { it.isNotBlank() },
+            video.publishedText.takeIf { it.isNotBlank() },
+        ).joinToString(" · ")
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Image(
+            painter = rememberAsyncImagePainter(video.thumbnailUrl),
+            contentDescription = video.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.width(160.dp).height(90.dp).clip(RoundedCornerShape(8.dp)),
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = video.title,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = metadata,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

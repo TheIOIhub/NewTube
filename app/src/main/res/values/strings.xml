@@ -85,6 +85,7 @@
     <string name="subscriptions_empty">Немає нових відео з підписок</string>
     <string name="session_expired">Сесія завершилася</string>
     <string name="session_expired_action">Увійти знову</string>
+    <string name="history_remote_subtitle">Історія YouTube</string>
 
     <string name="about_title">Про NewTube</string>
     <string name="about_version">Версія %1$s</string>

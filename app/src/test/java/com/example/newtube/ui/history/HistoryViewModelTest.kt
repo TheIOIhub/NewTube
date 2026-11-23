@@ -1,32 +1,49 @@
 package com.example.newtube.ui.history
 
+import com.example.newtube.model.AccountPage
+import com.example.newtube.model.AccountResult
+import com.example.newtube.model.AccountState
+import com.example.newtube.model.AppSettings
+import com.example.newtube.model.RemoteVideo
+import com.example.newtube.model.UserAccount
 import com.example.newtube.model.WatchHistoryEntry
+import com.example.newtube.repository.AccountRepository
 import com.example.newtube.repository.HistoryRepository
-import com.example.newtube.ui.common.UiState
+import com.example.newtube.repository.SettingsRepository
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HistoryViewModelTest {
-    private val repository: HistoryRepository = mockk()
-    private val testDispatcher = StandardTestDispatcher()
+    private val local: HistoryRepository = mockk(relaxed = true)
+    private val account: AccountRepository = mockk(relaxed = true)
+    private val settings: SettingsRepository = mockk(relaxed = true)
+    private val entry = WatchHistoryEntry("v1", "T", "C", "UC1", "", "", 60_000, 1)
+    private val remote = RemoteVideo("v2", "R", "Ch", "UC2", "thumb", 60_000, "1.2M views", "1 day ago", false)
+    private val signedIn = AccountState.SignedIn(UserAccount("N", "e", "a"))
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(testDispatcher)
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        every { local.observeLocal() } returns flowOf(listOf(entry))
+        every { settings.settings } returns flowOf(AppSettings())
     }
 
     @After
@@ -35,32 +52,58 @@ class HistoryViewModelTest {
     }
 
     @Test
-    fun `history starts loading and then exposes rows`() =
+    fun `signed out uses local history`() =
         runTest {
-            val flow = MutableStateFlow<List<WatchHistoryEntry>>(emptyList())
-            every { repository.observeLocal() } returns flow
-
-            val viewModel = HistoryViewModel(repository)
-            assertTrue(viewModel.uiState.value is UiState.Loading)
-
-            flow.value = listOf(entry("v1"))
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            assertEquals(
-                UiState.Success(listOf(entry("v1"))),
-                viewModel.uiState.first { it is UiState.Success },
-            )
+            every { account.state } returns MutableStateFlow(AccountState.SignedOut)
+            val vm = HistoryViewModel(local, account, settings)
+            advanceUntilIdle()
+            assertFalse(vm.uiState.value.remoteSource)
+            assertEquals(1, vm.uiState.value.local.size)
         }
 
-    private fun entry(id: String) =
-        WatchHistoryEntry(
-            videoId = id,
-            title = "Video $id",
-            channelName = "Channel",
-            channelId = "UC1",
-            authorAvatarUrl = "",
-            thumbnailUrl = "https://example.com/$id.jpg",
-            durationMs = 30_000,
-            watchedAt = 1,
-        )
+    @Test
+    fun `signed in with remote history off uses local history`() =
+        runTest {
+            every { account.state } returns MutableStateFlow(signedIn)
+            every { settings.settings } returns flowOf(AppSettings(useRemoteHistory = false))
+            val vm = HistoryViewModel(local, account, settings)
+            advanceUntilIdle()
+            assertFalse(vm.uiState.value.remoteSource)
+        }
+
+    @Test
+    fun `signed in with remote history on loads the first page`() =
+        runTest {
+            every { account.state } returns MutableStateFlow(signedIn)
+            coEvery { account.history(null) } returns AccountResult.Success(AccountPage(listOf(remote), null))
+            val vm = HistoryViewModel(local, account, settings)
+            vm.retry()
+            advanceUntilIdle()
+            assertTrue(vm.uiState.value.remoteSource)
+            assertEquals(listOf("v2"), vm.uiState.value.remote.map { it.id })
+        }
+
+    @Test
+    fun `remote history failure falls back to local with the banner`() =
+        runTest {
+            every { account.state } returns MutableStateFlow(AccountState.Expired(UserAccount("N", "e", "a")))
+            coEvery { account.history(null) } returns AccountResult.NeedsSignIn
+            val vm = HistoryViewModel(local, account, settings)
+            vm.retry()
+            advanceUntilIdle()
+            assertFalse(vm.uiState.value.remoteSource)
+            assertEquals(1, vm.uiState.value.local.size)
+            assertTrue(vm.uiState.value.expired)
+        }
+
+    @Test
+    fun `remote history is not written to Room`() =
+        runTest {
+            every { account.state } returns MutableStateFlow(signedIn)
+            coEvery { account.history(null) } returns AccountResult.Success(AccountPage(listOf(remote), null))
+            val vm = HistoryViewModel(local, account, settings)
+            vm.retry()
+            advanceUntilIdle()
+            coVerify(exactly = 0) { local.record(any()) }
+        }
 }
