@@ -60,7 +60,7 @@ fun NavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
                 focus = entry.arguments?.getBoolean("focus") ?: false,
             )
         }
-        composable("subscriptions") { SubscriptionsScreen() }
+        composable("subscriptions") { SubscriptionsScreen(navController) }
         composable("you") { YouScreen(navController) }
         composable("history") { HistoryScreen(navController) }
         composable("settings") { SettingsScreen(navController) }

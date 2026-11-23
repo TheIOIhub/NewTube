@@ -80,6 +80,12 @@
     <string name="account_sign_out_body">Історія переглядів у застосунку залишиться.</string>
     <string name="settings_account">Акаунт</string>
 
+    <string name="subscriptions_sign_in_title">Увійдіть у Google, щоб бачити нові відео з підписок</string>
+    <string name="subscriptions_sign_in_body">Вхід використовується лише для даних акаунта.</string>
+    <string name="subscriptions_empty">Немає нових відео з підписок</string>
+    <string name="session_expired">Сесія завершилася</string>
+    <string name="session_expired_action">Увійти знову</string>
+
     <string name="about_title">Про NewTube</string>
     <string name="about_version">Версія %1$s</string>
     <string name="about_instance">Invidious: %1$s</string>

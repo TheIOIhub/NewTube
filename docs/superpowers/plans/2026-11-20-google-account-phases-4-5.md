@@ -698,6 +698,9 @@ class SubscriptionsViewModelTest {
     private val vm by lazy { SubscriptionsViewModel(account) }
     private val signedIn = AccountState.SignedIn(UserAccount("N", "e", "a"))
 
+    @Before fun setUp() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
+    @After fun tearDown() { Dispatchers.resetMain() }
+
     private fun video(id: String) =
         RemoteVideo(id, "Video $id", "Channel", "UC1", "thumb", 60_000, "1.2M views", "1 day ago", false)
 
