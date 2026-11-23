@@ -26,8 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.example.newtube.R
+import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.ThemeMode
+import com.example.newtube.ui.common.SignOutDialog
 import com.example.newtube.ui.shell.DetailTopBar
 
 @Composable
@@ -37,9 +39,11 @@ fun SettingsScreen(
 ) {
     val settings by viewModel.settings.collectAsState()
     val hasLocalHistory by viewModel.hasLocalHistory.collectAsState()
+    val account by viewModel.account.collectAsState()
     var themeDialogOpen by remember { mutableStateOf(false) }
     var qualityDialogOpen by remember { mutableStateOf(false) }
     var clearDialogOpen by remember { mutableStateOf(false) }
+    var signOutDialogOpen by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         DetailTopBar(
@@ -53,6 +57,29 @@ fun SettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(bottom = 24.dp),
         ) {
+            SettingsSection(stringResource(R.string.settings_account))
+            val signedInAccount = (account as? AccountState.SignedIn)?.account
+            if (signedInAccount != null) {
+                SettingsRow(
+                    title = signedInAccount.name.ifBlank { stringResource(R.string.you_guest) },
+                    subtitle = signedInAccount.email,
+                    onClick = {},
+                )
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                    TextButton(onClick = { signOutDialogOpen = true }) {
+                        Text(
+                            text = stringResource(R.string.account_sign_out),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            } else {
+                SettingsRow(
+                    title = stringResource(R.string.account_sign_in),
+                    onClick = { navController.navigate("login") },
+                )
+            }
+
             SettingsSection(stringResource(R.string.settings_appearance))
             SettingsRow(
                 title = stringResource(R.string.settings_theme),
@@ -135,6 +162,16 @@ fun SettingsScreen(
                 clearDialogOpen = false
             },
             onDismiss = { clearDialogOpen = false },
+        )
+    }
+
+    if (signOutDialogOpen) {
+        SignOutDialog(
+            onConfirm = {
+                viewModel.signOut()
+                signOutDialogOpen = false
+            },
+            onDismiss = { signOutDialogOpen = false },
         )
     }
 }

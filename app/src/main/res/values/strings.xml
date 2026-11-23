@@ -74,6 +74,12 @@
     <string name="login_retry">Спробувати ще</string>
     <string name="login_success">Готово</string>
 
+    <string name="account_sign_in">Увійти в Google</string>
+    <string name="account_sign_out">Вийти</string>
+    <string name="account_sign_out_title">Вийти з акаунта?</string>
+    <string name="account_sign_out_body">Історія переглядів у застосунку залишиться.</string>
+    <string name="settings_account">Акаунт</string>
+
     <string name="about_title">Про NewTube</string>
     <string name="about_version">Версія %1$s</string>
     <string name="about_instance">Invidious: %1$s</string>

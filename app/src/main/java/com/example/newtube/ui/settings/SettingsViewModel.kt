@@ -2,8 +2,10 @@ package com.example.newtube.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.ThemeMode
+import com.example.newtube.repository.AccountRepository
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.PlaybackPositionRepository
 import com.example.newtube.repository.SettingsRepository
@@ -20,7 +22,10 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val historyRepository: HistoryRepository,
     private val playbackPositions: PlaybackPositionRepository,
+    private val accountRepository: AccountRepository,
 ) : ViewModel() {
+    val account: StateFlow<AccountState> = accountRepository.state
+
     val settings: StateFlow<AppSettings> =
         settingsRepository.settings.stateIn(
             scope = viewModelScope,
@@ -53,6 +58,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setDefaultQuality(maxHeight: Int) {
         viewModelScope.launch { settingsRepository.setDefaultQuality(maxHeight) }
+    }
+
+    fun signOut() {
+        viewModelScope.launch { accountRepository.signOut() }
     }
 
     /** Clearing history also drops resume positions, as the design requires. */

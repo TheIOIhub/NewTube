@@ -628,6 +628,9 @@ git commit -m "feat: add the Google device-code login screen"
 class YouViewModelTest {
     private val account = mockk<AccountRepository>(relaxed = true)
 
+    @Before fun setUp() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
+    @After fun tearDown() { Dispatchers.resetMain() }
+
     @Test fun `signed out exposes SignedOut`() = runTest {
         every { account.state } returns MutableStateFlow(AccountState.SignedOut)
         val vm = YouViewModel(account)
