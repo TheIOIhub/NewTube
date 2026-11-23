@@ -902,6 +902,9 @@ class NotificationsViewModelTest {
     private val item = RemoteVideo("v1", "T", "C", "UC1", "", 0, "", "1 day ago", false)
     private val signedIn = AccountState.SignedIn(UserAccount("N", "e", "a"))
 
+    @Before fun setUp() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
+    @After fun tearDown() { Dispatchers.resetMain() }
+
     @Test fun `signed out shows the CTA`() = runTest {
         every { account.state } returns MutableStateFlow(AccountState.SignedOut)
         vm.load(); advanceUntilIdle()

@@ -55,6 +55,7 @@
 
     <string name="notifications_title">Сповіщення</string>
     <string name="notifications_signed_out">Сповіщення з’являться після входу в Google.</string>
+    <string name="notifications_empty">Немає нових сповіщень</string>
 
     <string name="history_title">Історія переглядів</string>
     <string name="history_empty">Історія порожня</string>
