@@ -60,6 +60,20 @@
     <string name="history_empty">Історія порожня</string>
     <string name="history_empty_body">Відео, які ви переглянули, з’являться тут.</string>
 
+    <string name="login_title">Вхід у Google</string>
+    <string name="login_requesting">Отримуємо код…</string>
+    <string name="login_waiting_hint">Відкрийте google.com/device на телефоні або комп\'ютері та введіть код</string>
+    <string name="login_open_site">Відкрити сайт</string>
+    <string name="login_copy_code">Копіювати код</string>
+    <string name="login_copied">Код скопійовано</string>
+    <string name="login_checking">Перевіряємо…</string>
+    <string name="login_expires_in">Код дійсний ще %1$s</string>
+    <string name="login_error_denied">Доступ відхилено</string>
+    <string name="login_error_expired">Код прострочено. Спробуйте ще раз</string>
+    <string name="login_error_network">Немає з’єднання. Перевірте мережу</string>
+    <string name="login_retry">Спробувати ще</string>
+    <string name="login_success">Готово</string>
+
     <string name="about_title">Про NewTube</string>
     <string name="about_version">Версія %1$s</string>
     <string name="about_instance">Invidious: %1$s</string>

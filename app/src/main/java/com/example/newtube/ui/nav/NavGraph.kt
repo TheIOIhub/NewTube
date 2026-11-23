@@ -12,6 +12,7 @@ import com.example.newtube.ui.channel.ChannelScreen
 import com.example.newtube.ui.comments.CommentsScreen
 import com.example.newtube.ui.history.HistoryScreen
 import com.example.newtube.ui.home.HomeScreen
+import com.example.newtube.ui.login.LoginScreen
 import com.example.newtube.ui.notifications.NotificationsScreen
 import com.example.newtube.ui.search.SearchScreen
 import com.example.newtube.ui.settings.SettingsScreen
@@ -63,6 +64,7 @@ fun NavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
         composable("you") { YouScreen(navController) }
         composable("history") { HistoryScreen(navController) }
         composable("settings") { SettingsScreen(navController) }
+        composable("login") { LoginScreen(navController) }
         composable("about") { AboutScreen(navController) }
         composable("notifications") { NotificationsScreen(navController) }
         composable("channel/{channelId}") { backStackEntry ->
