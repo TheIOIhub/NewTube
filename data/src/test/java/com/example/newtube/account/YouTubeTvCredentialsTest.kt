@@ -2,6 +2,7 @@ package com.example.newtube.account
 
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -60,6 +61,25 @@ class YouTubeTvCredentialsTest {
             now += 7 * 24 * 60 * 60 * 1000L + 1
             provider.get()
             assertEquals(4, fetches)
+        }
+
+    @Test
+    fun `fetches off the calling thread because the fetcher blocks`() =
+        runTest {
+            val callerThread = Thread.currentThread().name
+            val fetchThreads = mutableListOf<String>()
+            val provider =
+                YouTubeTvCredentialsProvider(
+                    fetcher = { url ->
+                        fetchThreads += Thread.currentThread().name
+                        if (url.endsWith("/tv")) html else js
+                    },
+                    store = InMemorySecretStore(),
+                    clock = { now },
+                )
+            provider.get()
+            assertEquals(2, fetchThreads.size)
+            assertNotEquals(callerThread, fetchThreads.first())
         }
 
     private fun resource(path: String): String = checkNotNull(javaClass.getResource(path)).readText()

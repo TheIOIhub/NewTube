@@ -64,21 +64,44 @@ Legend: ✅ done · ⚠️ partial · ⏳ not started
 |56| Complete Settings: history switches, confirmed clear (also resume positions), maximum quality, About | ✅ |
 |57| Maximum-quality cap applied to stream selection (`getVideoDetails(videoId, maxHeight)`) | ✅ |
 |58| Formatter edge-case tests, docs update and final device QA pass | ✅ |
+|59| TV device-code OAuth spike: scrape `clientId`/`clientSecret` from the TV base JS, confirm `returnPersonaAccounts`, 401 on signed-out `FEhistory` | ✅ |
+|60| `YouTubeOAuthApi`: device-code request, token polling (`authorization_pending`/`slow_down`/`access_denied`/`expired_token`), refresh with `invalid_grant` mapping | ✅ |
+|61| Tolerant InnerTube parser: `tileRenderer`/`reelWatchEndpoint`, run titles, durations, dedupe by id, TV continuation, account parser | ✅ |
+|62| `AccountRepositoryImpl` + `EncryptedSharedPreferences` token store: cold login flow, shared refresh mutex, expiry/back-off, `SignedOut`/`SignedIn`/`Expired` | ✅ |
+|63| Login screen: device code, countdown, open `google.com/device`, copy code, cancel/retry, Hilt `login` route | ✅ |
+|64| You tab account header and confirmed sign-out; Settings Акаунт section (sign in / name+email / sign out) | ✅ |
+|65| Subscriptions as the TV recent-video feed: two-column grid, continuation paging, skeletons, CTA, expired banner | ✅ |
+|66| History screen switches to read-only YouTube history when enabled; remote rows never persisted; local fallback banners | ✅ |
+|67| Best-effort notifications screen from `FEnotifications` with empty state and retry | ✅ |
+|68| Account strings, README/SPEC/TASKS update, 133 JVM tests and device QA on the TCL 6102H | ✅ |
 
 ## Phase 1–3 plan
 
 Tasks 43–58 were executed from [`docs/superpowers/plans/2026-11-12-youtube-home-ui-and-local-history.md`](docs/superpowers/plans/2026-11-12-youtube-home-ui-and-local-history.md); the binding design is [`docs/superpowers/specs/2026-11-12-youtube-home-account-design.md`](docs/superpowers/specs/2026-11-12-youtube-home-account-design.md). Progress notes and task-by-task rulings live in `.superpowers/sdd/2026-11-12-youtube-home-ui-and-local-history/progress.md`.
 
+## Phase 4–5 plan
+
+Tasks 59–68 were executed from [`docs/superpowers/plans/2026-11-20-google-account-phases-4-5.md`](docs/superpowers/plans/2026-11-20-google-account-phases-4-5.md); the same design document is binding (spike corrections are folded into §13/§15.3/§18.2/§22). Progress notes live in `.superpowers/sdd/2026-11-20-google-account-phases-4-5/progress.md`.
+
 ## Next Steps (planned)
 
-1. **Google account (Plan 2)** – TV device-code OAuth, encrypted token store, InnerTube client for subscriptions, notifications and YouTube history; replaces the signed-out placeholders in `SubscriptionsScreen`, `NotificationsScreen` and the You header. Gated on the Phase 0 device-code spike.
-2. **Read‑through caching** – serve lists from Room when offline, add `NetworkBoundResource`‑style repository methods.
-3. **Runtime instance switch** – choose/validate an Invidious base URL in Settings instead of a build flag.
-4. **Live stream metadata** – surface `liveNow`, live badges and DVR handling.
-5. **Comment interactions** – replies, likes, sorting.
-6. **UI tests** for navigation flows and player controls (Compose test rule); keep the manual device pass.
-7. **Cleanup** – remove the stale root `src/` folder and decide whether the empty `ui` module is still needed.
-8. **Release** – add `LICENSE` (MIT), signing config, `assembleRelease`, tagged 1.0.0.
+1. **Read‑through caching** – serve lists from Room when offline, add `NetworkBoundResource`‑style repository methods.
+2. **Runtime instance switch** – choose/validate an Invidious base URL in Settings instead of a build flag.
+3. **Live stream metadata** – surface `liveNow`, live badges and DVR handling.
+4. **Comment interactions** – replies, likes, sorting.
+5. **UI tests** for navigation flows and player controls (Compose test rule); keep the manual device pass.
+6. **Cleanup** – remove the stale root `src/` folder and decide whether the empty `ui` module is still needed.
+7. **Release** – add `LICENSE` (MIT), signing config, `assembleRelease`, tagged 1.0.0.
+
+## Phase 6 checklist
+
+- [ ] Read‑through/offline cache for Home, Search, Channel and History lists.
+- [ ] Runtime Invidious instance picker with validation and a health check.
+- [ ] Live stream metadata, DVR window and a live badge on the Watch screen.
+- [ ] Comment replies, likes and sorting.
+- [ ] Compose UI tests for the five tabs, login and the player controls.
+- [ ] Remove the stale root `src/` and the empty `ui` module.
+- [ ] Release: LICENSE, signing config, `assembleRelease`, tag.
 
 > All tasks will be tracked in this markdown and updated as they complete.
 

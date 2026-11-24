@@ -13,7 +13,11 @@
 * **Comments** – top-level comments with avatars, total count, pinned badge and `continuation` paging.
 * **Video player** – ExoPlayer: HLS manifest with progressive/merged-DASH fallbacks, quality menu (auto / ≤ Np), fullscreen, picture-in-picture and resume position.
 * **Watch history** – every watch (a Shorts clip only after 3 seconds on the page) is upserted into a local Room table, newest first, with the channel avatar and relative watch time; tapping a row reopens the video.
-* **Settings** – Вигляд (system/dark/light theme, applied immediately and kept across restarts), Історія (record-watch switch, YouTube-history placeholder until Google sign-in, confirmed clear that also drops resume positions), Відтворення (maximum quality 480p/720p/1080p, default 720p) and Про застосунок.
+* **Google account (read-only)** – TV device-code OAuth (`google.com/device`) with the client credentials scraped from YouTube's TV page, tokens encrypted with `EncryptedSharedPreferences`, and access tokens refreshed silently. The Ви tab shows the signed-in avatar, name and email with a confirmed sign-out; Settings gains an Акаунт section.
+* **Subscriptions** – the signed-in account's recent uploads from the TV `FEsubscriptions` endpoint, rendered as a two-column grid with continuation paging; YouTube TV returns a video feed rather than a channel list.
+* **YouTube history** – when signed in and the setting is on, the History screen shows the account's real YouTube history (videos and Shorts) with "Історія YouTube" as the subtitle and infinite paging; remote rows are never written to Room and a failed fetch falls back to the local list with an inline banner.
+* **Notifications** – best-effort read of `FEnotifications`; rows open Watch, and an empty or unavailable feed shows "Немає нових сповіщень".
+* **Settings** – Вигляд (system/dark/light theme, applied immediately and kept across restarts), Акаунт (Google sign-in / sign-out), Історія (record-watch switch, YouTube history switch once signed in, confirmed clear that also drops resume positions), Відтворення (maximum quality 480p/720p/1080p, default 720p) and Про застосунок.
 * **Theme** – dark by default when the system is dark, full light palette, purple brand accent, matching system bars and XML splash colours.
 * **Room caching** – fetched videos and channels are persisted (Room v3: `channelId` and `authorAvatarUrl` on videos, plus the `watch_history` table and `2→3` migration).
 * **DataStore** – per-video playback position and the settings above.
@@ -21,7 +25,7 @@
 
 ### Not implemented yet
 
-Read‑through/offline caching, runtime instance switch, Google account features (subscriptions, notifications and YouTube history stay honest signed-out placeholders), subtitles, live/DVR handling, comment replies, UI tests and the release signing pipeline. Full list: [`TASKS.md`](TASKS.md).
+Read‑through/offline caching, runtime instance switch, subtitles, live/DVR handling, comment replies, UI tests and the release signing pipeline. Account features are read-only: NewTube never subscribes, likes or deletes anything on YouTube. Full list: [`TASKS.md`](TASKS.md).
 
 ## Requirements
 
@@ -76,7 +80,9 @@ ui/      Reserved Android library for shared Compose components (empty)
 
 1.0.0 – five tabs (Головна, Shorts, Пошук, Підписки, Ви) with YouTube-style Home cards and a Shorts shelf, search, channel screen, watch screen with player controls and comments, full-screen Shorts from real vertical clips, local watch history, dark/light theme and a complete Settings screen.
 
-Next releases add Google account integration (TV device-code OAuth + InnerTube for subscriptions, notifications and YouTube history), offline caching, subtitles, playlists and the release pipeline (see [`TASKS.md`](TASKS.md)).
+1.1.0 – read-only Google account: TV device-code OAuth, encrypted tokens, account header and sign-out, the subscriptions recent-video feed, YouTube history and best-effort notifications.
+
+Next releases add offline caching, subtitles, playlists, a runtime Invidious switcher and the release pipeline (see [`TASKS.md`](TASKS.md)).
 
 ## Documentation
 

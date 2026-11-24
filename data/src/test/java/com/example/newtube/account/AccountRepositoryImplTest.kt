@@ -126,6 +126,22 @@ class AccountRepositoryImplTest {
             assertEquals(AccountResult.ParseEmpty, repo.history())
         }
 
+    @Test
+    fun `notifications maps an unsupported endpoint to the empty state`() =
+        runTest {
+            seedSignedIn(expiresAt = clock.now + 60_000)
+            innerTube.notificationsHttpCode = 400
+            assertEquals(AccountResult.ParseEmpty, repo.notifications())
+        }
+
+    @Test
+    fun `notifications keeps a server failure as a server error`() =
+        runTest {
+            seedSignedIn(expiresAt = clock.now + 60_000)
+            innerTube.notificationsHttpCode = 503
+            assertEquals(AccountResult.Server, repo.notifications())
+        }
+
     private fun seedSignedIn(expiresAt: Long) {
         store.put("refresh_token", "r1")
         store.put("access_token", "stale")
@@ -181,6 +197,7 @@ private class FakeInnerTubeService : InnerTubeService {
     var subscriptionsJson: String = resource("/spike/browse_FEsubscriptions.json")
     var profileJson: String = resource("/spike/accounts_list.json")
     var unauthorized = false
+    var notificationsHttpCode: Int? = null
     var lastAuthorization: String? = null
 
     override suspend fun browseVideos(
@@ -190,6 +207,9 @@ private class FakeInnerTubeService : InnerTubeService {
     ): String {
         lastAuthorization = "Bearer $accessToken"
         if (unauthorized) throw InnerTubeHttpException(401, "unauthorized")
+        if (browseId == "FEnotifications") {
+            notificationsHttpCode?.let { throw InnerTubeHttpException(it, "notifications") }
+        }
         return if (browseId == "FEsubscriptions") subscriptionsJson else videosJson
     }
 

@@ -152,8 +152,14 @@ private fun WaitingContent(
     Text(
         text = state.userCode,
         fontFamily = FontFamily.Monospace,
-        fontSize = 44.sp,
-        letterSpacing = 6.sp,
+        // Google issues both 7- and 11-character codes; the long one wraps
+        // into a second line that overlaps the first, so size it to fit.
+        fontSize = if (state.userCode.length <= 9) 44.sp else 32.sp,
+        letterSpacing = 4.sp,
+        maxLines = 1,
+        softWrap = false,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.primary,
     )
     Spacer(Modifier.height(12.dp))

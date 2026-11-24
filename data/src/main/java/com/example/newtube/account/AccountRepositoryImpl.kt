@@ -122,6 +122,12 @@ class AccountRepositoryImpl(
             } catch (_: NeedsSignInException) {
                 return AccountResult.NeedsSignIn
             } catch (e: InnerTubeHttpException) {
+                // `FEnotifications` is best effort: the TV client answers 400
+                // when it has nothing for this account, which means "no new
+                // notifications", not a network failure with a dead retry.
+                if (e.code in 400..499 && e.code != 429) {
+                    return AccountResult.ParseEmpty
+                }
                 return mapHttp(e.code)
             } catch (_: IOException) {
                 return AccountResult.Network

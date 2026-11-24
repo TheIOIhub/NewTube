@@ -20,14 +20,18 @@
 | **Коментарі** | Список коментарів | `GET /api/v1/comments/{videoId}`, перша сторінка + `continuation`, лічильник, закріплені | ✅ реалізовано (без відповідей/лайків) |
 | **Плеєр** | ExoPlayer | live → HLS, VOD → progressive → merged adaptive (avc1 ≤ вибраної якості) → HLS як запасний; меню якості, fullscreen, PIP, resume | ✅ реалізовано |
 | **Історія** | Локальна історія | Room-таблиця `watch_history`: один рядок на відео (upsert, ліміт 500), найновіші зверху, відносний час українською; Shorts пишеться лише після 3 с на сторінці; тап відкриває відео | ✅ реалізовано |
-| **Налаштування** | Повний екран | Вигляд (системна/темна/світла тема), Історія (запис переглядів, плейсхолдер історії YouTube, підтверджене очищення разом із позиціями), Відтворення (480/720/1080p, типово 720p), Про застосунок | ✅ реалізовано |
-| **Підписки / Ви** | Плейсхолдери | чесні підказки «доступно після входу в Google» без мертвих кнопок; вхід — етап 2 | ⚠️ плейсхолдери |
+| **Історія YouTube** | Віддалена історія | після входу і ввімкненого перемикача екран показує справжню історію акаунта (відео й Shorts, підзаголовок «Історія YouTube») з пагінацією; віддалені рядки не пишуться в Room; збій або прострочена сесія повертає локальний список із банером | ✅ реалізовано |
+| **Налаштування** | Повний екран | Акаунт (вхід/вихід), Вигляд (системна/темна/світла тема), Історія (запис переглядів, перемикач історії YouTube, підтверджене очищення разом із позиціями), Відтворення (480/720/1080p, типово 720p), Про застосунок | ✅ реалізовано |
+| **Вхід** | Google TV OAuth | device-code вхід на `google.com/device`: код, зворотний відлік, «Відкрити сайт», копіювання коду, скасування й повтор; токени у `EncryptedSharedPreferences`, оновлення access-токена без участі користувача | ✅ реалізовано |
+| **Підписки** | Стрічка підписок | останні відео акаунта з TV-ендпоінта `FEsubscriptions` як сітка 2×N із `continuation`; CTA для входу, банер простроченої сесії; це стрічка відео, а не список каналів, бо TV-ендпоінт не повертає `gridChannelRenderer` | ✅ реалізовано |
+| **Сповіщення** | Best-effort | один запит `FEnotifications`, рядки відкривають Watch; порожня або недоступна відповідь показує «Немає нових сповіщень» (без пагінації й бейджів) | ✅ реалізовано |
+| **Ви / Акаунт** | Стан акаунта | гість бачить CTA входу; після входу — аватар 48 dp, ім'я, email і підтверджений вихід; вихід не чіпає локальну історію | ✅ реалізовано |
 | **Кешування** | Метадані відео/каналів | Room v3: write‑through, читання з кешу для `getVideoById`/`getChannelDetails` | ⚠️ частково (офлайн‑стрічок немає) |
 | **Тема** | Темна/світла | Material3, темна типово за системою, перемикач у Налаштуваннях зберігається в DataStore | ✅ реалізовано |
 
 ### 2.1. Мережевий шар (фактичний контракт)
 
-Усі запити йдуть на Invidious‑інстанс, базова адреса задається збіркою (див. §4.3).
+Усі запити стрічок, пошуку, каналів і плеєра йдуть на Invidious‑інстанс, базова адреса задається збіркою (див. §4.3). Функції акаунта (історія, підписки, сповіщення) ходять напряму в YouTube InnerTube з Bearer‑токеном.
 
 | Призначення | Запит | Модель |
 |---|---|---|
@@ -41,6 +45,19 @@
 | Канал | `GET api/v1/channels/{channelId}` | `ChannelDto` |
 | Деталі + стрім | `GET api/v1/videos/{videoId}` | `VideoDto` (+`hlsUrl`, `formatStreams`, `adaptiveFormats`, `recommendedVideos`) |
 | Коментарі | `GET api/v1/comments/{videoId}?continuation=…` | `CommentsPageDto { comments, continuation, commentCount }` |
+
+Акаунт (YouTube InnerTube, лише читання):
+
+| Призначення | Запит | Особливості |
+|---|---|---|
+| Device code | `POST https://www.google.com/o/oauth2/device/code` | `client_id`/`client_secret` витягуються з TV base JS і кешуються в зашифрованому сховищі; scope як у TV-клієнта |
+| Токени | `POST https://www.googleapis.com/oauth2/v4/token` | `authorization_pending`, `slow_down`, `access_denied`, `expired_token`; refresh без ротації токена, `invalid_grant` = вихід |
+| Профіль | `POST /youtubei/v1/account/accounts_list` | `returnPersonaAccounts: true`; власник акаунта не має `pageIdToken` |
+| Історія | `POST /youtubei/v1/browse` з `browseId=FEhistory` | TVHTML5-контекст + Bearer; відповідь — `tileRenderer`, зокрема Shorts через `reelWatchEndpoint` |
+| Підписки | `POST /youtubei/v1/browse` з `browseId=FEsubscriptions` | стрічка останніх відео, а не список каналів |
+| Сповіщення | `POST /youtubei/v1/browse` з `browseId=FEnotifications` | best-effort: порожня або нерозпізнана відповідь = порожній стан |
+
+Пагінація InnerTube береться з `continuations[].nextContinuationData.continuation` (не з `continuationCommand.token`); підписаний користувач отримує 401 на `FEhistory` без токена, тому віддалені функції активні лише після входу. Парсер терпимий до невідомих вузлів: невідомі форми дають менше елементів, а не помилку.
 
 Особливості, які враховані в мапінгу:
 
@@ -58,8 +75,8 @@
 
 - Підтримка Android API 24+ (compileSdk/targetSdk 34).
 - UI на Jetpack Compose (Material 3).
-- Тестованість: JUnit4 + MockK + kotlinx‑coroutines‑test (87 JVM unit‑тестів: репозиторій, мапінг налаштувань/історії, 9 ViewModel‑класів, форматери) + 4 інструментальні тести Room (міграції та DAO `watch_history`) на реальному пристрої.
-- Локальне збереження: Room v3 (міграції `1→2` додає `videos.channelId`, `2→3` — `videos.authorAvatarUrl` і таблицю `watch_history`), DataStore Preferences для позиції відтворення та налаштувань.
+- Тестованість: JUnit4 + MockK + kotlinx‑coroutines‑test (133 JVM unit‑тести: репозиторії, OAuth/InnerTube, мапінги налаштувань/історії, 12 ViewModel‑класів, форматери) + 4 інструментальні тести Room (міграції та DAO `watch_history`) на реальному пристрої.
+- Локальне збереження: Room v3 (міграції `1→2` додає `videos.channelId`, `2→3` — `videos.authorAvatarUrl` і таблицю `watch_history`), DataStore Preferences для позиції відтворення та налаштувань, `EncryptedSharedPreferences` (`androidx.security:security-crypto`) для OAuth-токенів, клієнтських даних і профілю; файл `account_tokens` виключений із backup.
 - Лінтинг: ktlint (плагін `org.jlleitschuh.gradle.ktlint`), `ktlintCheck` проходить.
 - CI/CD: GitHub Actions `.github/workflows/android.yml` (`assembleDebug`, `ktlintCheck`, `test`).
 - Ліцензія MIT (файл `LICENSE` ще не доданий).
@@ -69,9 +86,9 @@
 ### 4.1. Модулі
 
 ```
-app      Android application: Compose UI (п'ять вкладок, Home/Shorts/Search/History/Settings), ViewModels, навігація, тема, Hilt entry points
-data     Android library: Retrofit/Moshi сервіс, Room (entities/DAO/db/migrations v1→v2→v3), DataStore (позиції + налаштування), Hilt‑модулі, VideoRepositoryImpl / HistoryRepositoryImpl
-domain   Kotlin/JVM: доменні моделі (Video, VideoDetails, PlaybackSource, Channel, Comment, CommentPage, ChannelVideosPage, AppSettings, WatchHistoryEntry) та інтерфейси VideoRepository / PlaybackPositionRepository / HistoryRepository / SettingsRepository
+app      Android application: Compose UI (п'ять вкладок, Home/Shorts/Search/Subscriptions/You/Login/History/Settings/Notifications), ViewModels, навігація, тема, Hilt entry points
+data     Android library: Retrofit/Moshi сервіс, Room (entities/DAO/db/migrations v1→v2→v3), DataStore (позиції + налаштування), encrypted token store, YouTube TV OAuth + InnerTube-клієнт, Hilt‑модулі, VideoRepositoryImpl / HistoryRepositoryImpl / AccountRepositoryImpl
+domain   Kotlin/JVM: доменні моделі (Video, VideoDetails, PlaybackSource, Channel, Comment, CommentPage, ChannelVideosPage, AppSettings, WatchHistoryEntry, RemoteVideo, UserAccount, AccountState, LoginState, AccountResult) та інтерфейси VideoRepository / PlaybackPositionRepository / HistoryRepository / SettingsRepository / AccountRepository
 ui       Android library‑заглушка (порожня, зарезервована під винесення Compose‑компонентів)
 ```
 
@@ -94,13 +111,14 @@ ui       Android library‑заглушка (порожня, зарезерво�
 | Hilt | 2.47 (kapt) |
 | Room | 2.6.1 (kapt) |
 | DataStore Preferences | 1.1.1 |
+| Security Crypto | 1.1.0-alpha06 (`EncryptedSharedPreferences`) |
 | Retrofit + converter‑moshi | 2.11.0 |
 | Moshi (kotlin + codegen) | 1.15.1 |
 | OkHttp + logging‑interceptor | 4.12.0 |
 | ExoPlayer | 2.19.0 |
 | Coil | 2.5.0 |
 | Kotlinx Coroutines | 1.8.1 |
-| JUnit / MockK / coroutines‑test | 4.13.2 / 1.13.10 / 1.8.1 |
+| JUnit / MockK / coroutines-test | 4.13.2 / 1.13.10 / 1.8.1 (`mockwebserver` лише для тестів OAuth) |
 | ktlint‑gradle | 12.0.2 |
 
 Чому не новіші версії: зв'язка Kotlin 1.9.24 + Compose Compiler 1.5.14 сумісна «з коробки»; перехід на Kotlin 2.x вимагає окремого Compose‑плагіна (`org.jetbrains.kotlin.plugin.compose`) і винесений у беклог.
@@ -122,9 +140,9 @@ ui       Android library‑заглушка (порожня, зарезерво�
 3. **2‑3 місяць** – ViewModels і UI‑компоненти для Home/Shorts/Search. ✅
 4. **3‑4 місяць** – Плейєр (ExoPlayer) з вибором якості, аудіо, fullscreen. ✅ (PIP і resume — у межах наступного пункту)
 5. **4‑5 місяць** – Тестування, кешування, Dark‑Mode, баг‑фікси. ✅ тести, кешування записів, темна/світла тема з перемикачем
-6. **5‑6 місяць** – Підготовка релізу 1.0, документація, підписка на канали. ⏳ (Google-акаунт — наступний план)
+6. **5‑6 місяць** – Підготовка релізу 1.0, документація, підписка на канали. ✅ read-only Google-акаунт (TV device-code OAuth + InnerTube): підписки, історія YouTube і сповіщення
 
-Станом на поточну ітерацію закрито: п'ять вкладок із YouTube-стилем Головної (полиця Shorts, картки з аватарами, скелетони), deep link на конкретний Shorts, навігацію на канал за `UC…id`, пагінацію пошуку/каналу/коментарів, контроли плеєра (якість, fullscreen, PIP, resume), стани завантаження/помилки з retry, екран перегляду відео, вертикальний плеєр шортсів, локальну історію переглядів і повний екран Налаштувань (тема, історія, максимальна якість, Про застосунок) із застосуванням обраної якості до вибору стріму.
+Станом на поточну ітерацію закрито: п'ять вкладок із YouTube-стилем Головної (полиця Shorts, картки з аватарами, скелетони), deep link на конкретний Shorts, навігацію на канал за `UC…id`, пагінацію пошуку/каналу/коментарів, контроли плеєра (якість, fullscreen, PIP, resume), стани завантаження/помилки з retry, екран перегляду відео, вертикальний плеєр шортсів, локальну історію переглядів, повний екран Налаштувань (тема, історія, максимальна якість, Про застосунок) із застосуванням обраної якості до вибору стріму, а також read-only вхід у Google із зашифрованими токенами, стрічкою підписок, історією YouTube і best-effort сповіщеннями.
 
 ## 6. Відомі обмеження
 
@@ -134,8 +152,9 @@ ui       Android library‑заглушка (порожня, зарезерво�
 4. **Коментарі**: показуються лише top‑level коментарі, без відповідей; лайки та відповіді не інтерактивні.
 5. **Обмеження інстансу**: на тестовому інстансі `description` і `formatStreams` у `/api/v1/videos/{id}` порожні. HLS-сегменти VOD там віддають **403** (варіантні плейлисти ведуть на YouTube-слайси `/govp/slices=…`), тоді як adaptive-доріжки (`videoplayback?…&range=`) — **206**; тому VOD грає через merged adaptive, а HLS використовується для live. На інших інстансах поведінка може відрізнятися.
 6. **Мертвий код**: кореневий `src/` та порожній модуль `ui`.
-7. **Тестування**: 87 JVM unit-тестів + 4 інструментальні Room-тести (міграції/DAO) на TCL 6102H (Android 12); Compose/UI-тестів немає — перевірка екранів ручна.
-8. **Акаунт**: Підписки, дзвіночок і «історія YouTube» показано як плейсхолдери «доступно після входу в Google»; TV OAuth та InnerTube — окремий план.
+7. **Тестування**: 136 JVM unit-тести + 4 інструментальні Room-тести (міграції/DAO) на TCL 6102H (Android 12); Compose/UI-тестів немає — перевірка екранів ручна.
+8. **Акаунт**: вхід — read-only TV OAuth, тож застосунок не підписується, не ставить лайки й не видаляє нічого на YouTube. Google може будь-коли відкликати сесію — тоді екран показує банер «Сесія завершилася» й повторний вхід, а локальна історія лишається. Сповіщення — best-effort: TV-ендпоінт `FEnotifications` відповідає HTTP 400, тож екран показує «Немає нових сповіщень» замість помилки мережі, а Підписки — стрічка останніх відео, бо TV-ендпоінт не повертає список каналів.
+9. **OAuth-дані**: `clientId`/`clientSecret` витягуються з публічної TV-сторінки YouTube і кешуються в зашифрованому сховищі; це неофіційний шлях, і YouTube може його зламати без попередження. Файл токенів виключений із cloud backup.
 
 ## 7. Ключові вузли і посилання
 
@@ -155,6 +174,8 @@ ui       Android library‑заглушка (порожня, зарезерво�
 - Коментарі – `app/src/main/java/com/example/newtube/ui/comments`
 - Спільні стани/форматування – `app/src/main/java/com/example/newtube/ui/common`
 - Мережевий шар – `data/src/main/java/com/example/newtube/remote`
+- Акаунт – `data/src/main/java/com/example/newtube/account` (OAuth, credentials, encrypted store, repository) і `data/src/main/java/com/example/newtube/innertube` (парсер + клієнт)
+- Екрани входу й акаунта – `app/src/main/java/com/example/newtube/ui/login`, `ui/you`, `ui/subscriptions`, `ui/notifications`
 - Мапінг і кеш – `data/src/main/java/com/example/newtube/implementation/VideoRepositoryImpl.kt`
 - Позиція відтворення – `data/src/main/java/com/example/newtube/preferences/DataStorePlaybackPositionRepository.kt`
 
