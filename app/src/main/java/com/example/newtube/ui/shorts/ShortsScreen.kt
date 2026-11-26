@@ -171,7 +171,9 @@ private fun ShortsPager(
     LaunchedEffect(pagerState.currentPage, videos.size) {
         val currentVideo = videos.getOrNull(pagerState.currentPage) ?: return@LaunchedEffect
         viewModel.onPageChanged(pagerState.currentPage)
-        sources[currentVideo.id]?.let(holder::prepare) ?: holder.stop()
+        // VideoPlayer prepares the resolved source on mount; only clear the
+        // shared player here while the active page has no source yet.
+        if (sources[currentVideo.id] == null) holder.stop()
         if (pagerState.currentPage >= videos.size - LOAD_MORE_THRESHOLD) {
             viewModel.loadMore()
         }
