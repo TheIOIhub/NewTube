@@ -7,6 +7,7 @@ import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.SettingsRepository
+import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.toUserMessage
@@ -24,9 +25,16 @@ class ShortsViewModel @Inject constructor(
     private val repository: VideoRepository,
     private val settingsRepository: SettingsRepository,
     private val historyRepository: HistoryRepository,
+    private val shortsCache: ShortsCacheRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<UiState<List<Video>>>(UiState.Loading)
     val uiState: StateFlow<UiState<List<Video>>> = _uiState
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
+    private val _refreshError = MutableStateFlow<String?>(null)
+    val refreshError: StateFlow<String?> = _refreshError
 
     private val _isLoadingMore = MutableStateFlow(false)
     val isLoadingMore: StateFlow<Boolean> = _isLoadingMore
@@ -50,8 +58,15 @@ class ShortsViewModel @Inject constructor(
     /** The last id handed to the pager; keeps a restored tab from jumping twice. */
     private var handledStartId: String? = null
 
+    /** Active clip, used to restore the pager index after a background refresh. */
+    private var currentVideoId: String? = null
+
     init {
         reload()
+    }
+
+    fun dismissRefreshError() {
+        _refreshError.value = null
     }
 
     /**
@@ -84,14 +99,20 @@ class ShortsViewModel @Inject constructor(
             UiState.Success(listOf(requested) + latest.data.filterNot { it.id == id })
     }
 
+    /** Cache-first reload: show what we already have, then refresh in the background. */
     fun reload() {
         if (loading) return
         loading = true
         nextPage = 1
         reachedEnd = false
-        _uiState.value = UiState.Loading
+        _isRefreshing.value = true
+        _refreshError.value = null
         viewModelScope.launch {
+            var cached = emptyList<Video>()
             try {
+                cached = shortsCache.observeFeed().first()
+                _uiState.value =
+                    if (cached.isNotEmpty()) UiState.Success(cached) else UiState.Loading
                 val collected = mutableListOf<Video>()
                 var attempts = 0
                 while (collected.size < MIN_SHORTS && attempts < MAX_PAGE_ATTEMPTS && !reachedEnd) {
@@ -102,7 +123,12 @@ class ShortsViewModel @Inject constructor(
                     collected += batch
                 }
                 if (collected.isEmpty()) {
-                    _uiState.value = UiState.Error(NO_SHORTS_MESSAGE)
+                    // Never overwrite a usable cached feed with an empty refresh.
+                    if (cached.isEmpty()) {
+                        _uiState.value = UiState.Error(NO_SHORTS_MESSAGE)
+                    } else {
+                        _refreshError.value = NO_SHORTS_MESSAGE
+                    }
                 } else {
                     var result = collected.distinctBy { it.id }
                     val requestedId = _requestedStartId.value
@@ -111,12 +137,22 @@ class ShortsViewModel @Inject constructor(
                             result = listOf(it) + result
                         }
                     }
+                    shortsCache.replaceFeed(result)
                     _uiState.value = UiState.Success(result)
+                    val currentId = currentVideoId
+                    if (currentId != null) {
+                        _requestedStartId.value =
+                            currentId.takeIf { id -> result.any { it.id == id } }
+                    }
                 }
             } catch (e: Exception) {
-                _uiState.value = UiState.Error(e.toUserMessage())
+                _refreshError.value = e.toUserMessage()
+                if (cached.isEmpty()) {
+                    _uiState.value = UiState.Error(e.toUserMessage())
+                }
             } finally {
                 loading = false
+                _isRefreshing.value = false
             }
         }
     }
@@ -185,6 +221,7 @@ class ShortsViewModel @Inject constructor(
     }
 
     fun onPageSettled(video: Video) {
+        currentVideoId = video.id
         historyJob?.cancel()
         historyJob =
             viewModelScope.launch {

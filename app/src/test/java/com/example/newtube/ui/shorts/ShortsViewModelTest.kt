@@ -6,6 +6,7 @@ import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.SettingsRepository
+import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import io.mockk.coEvery
@@ -23,6 +24,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -33,12 +36,14 @@ class ShortsViewModelTest {
     private val repository: VideoRepository = mockk()
     private val history: HistoryRepository = mockk(relaxed = true)
     private val settings: SettingsRepository = mockk()
+    private val shortsCache: ShortsCacheRepository = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         every { settings.settings } returns flowOf(AppSettings())
+        every { shortsCache.observeFeed() } returns flowOf(emptyList())
         coJustRun { history.record(any()) }
     }
 
@@ -56,7 +61,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(2) } returns listOf(second)
             coEvery { repository.getShorts(3) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(UiState.Success(listOf(first, second)), viewModel.uiState.value)
@@ -67,10 +72,118 @@ class ShortsViewModelTest {
         runTest {
             coEvery { repository.getShorts(any()) } throws IllegalStateException("boom")
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertTrue(viewModel.uiState.value is UiState.Error)
+        }
+
+    @Test
+    fun `cached feed is published before network responds`() =
+        runTest {
+            val cached = video("cached")
+            val firstPage = CompletableDeferred<List<Video>>()
+            every { shortsCache.observeFeed() } returns flowOf(listOf(cached))
+            coEvery { repository.getShorts(1) } coAnswers { firstPage.await() }
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(cached)), viewModel.uiState.value)
+            assertTrue(viewModel.isRefreshing.value)
+
+            firstPage.complete(emptyList())
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+
+    @Test
+    fun cachedFeedSurvivesFailedRefresh() =
+        runTest {
+            val cached = video("cached")
+            every { shortsCache.observeFeed() } returns flowOf(listOf(cached))
+            coEvery { repository.getShorts(any()) } throws IllegalStateException("boom")
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf(cached), (viewModel.uiState.value as UiState.Success).data)
+            assertFalse(viewModel.isRefreshing.value)
+            assertNotNull(viewModel.refreshError.value)
+        }
+
+    @Test
+    fun `successful refresh replaces cached feed`() =
+        runTest {
+            val cached = video("cached")
+            val fresh = video("fresh")
+            every { shortsCache.observeFeed() } returns flowOf(listOf(cached))
+            coEvery { repository.getShorts(1) } returns listOf(fresh)
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(fresh)), viewModel.uiState.value)
+            assertFalse(viewModel.isRefreshing.value)
+            assertNull(viewModel.refreshError.value)
+            coVerify { shortsCache.replaceFeed(listOf(fresh)) }
+        }
+
+    @Test
+    fun `refresh keeps current clip index when id survives`() =
+        runTest {
+            val a = video("a")
+            val b = video("b")
+            val c = video("c")
+            val x = video("x")
+            val y = video("y")
+            every { shortsCache.observeFeed() } returns flowOf(listOf(a, b, c))
+            coEvery { repository.getShorts(1) } returns listOf(x, b, y)
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.onPageSettled(b)
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(x, b, y)), viewModel.uiState.value)
+            assertEquals("b", viewModel.requestedStartId.value)
+        }
+
+    @Test
+    fun `refresh drops the start request when the current clip is gone`() =
+        runTest {
+            val a = video("a")
+            val b = video("b")
+            val c = video("c")
+            every { shortsCache.observeFeed() } returns flowOf(listOf(a, b, c))
+            coEvery { repository.getShorts(1) } returns listOf(video("x"), video("y"))
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.onPageSettled(b)
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.requestedStartId.value)
+        }
+
+    @Test
+    fun `manual refresh does not clear cache`() =
+        runTest {
+            val cached = video("cached")
+            every { shortsCache.observeFeed() } returns flowOf(listOf(cached))
+            coEvery { repository.getShorts(any()) } throws IllegalStateException("boom")
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf(cached), (viewModel.uiState.value as UiState.Success).data)
+            coVerify(exactly = 0) { shortsCache.replaceFeed(emptyList()) }
         }
 
     @Test
@@ -87,7 +200,7 @@ class ShortsViewModelTest {
                     playback = PlaybackSource.Hls("https://example.com/manifest"),
                 )
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.ensurePlayback("1")
@@ -115,7 +228,7 @@ class ShortsViewModelTest {
                     playback = PlaybackSource.Progressive("https://example.com/480.mp4"),
                 )
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.ensurePlayback("1")
@@ -132,7 +245,7 @@ class ShortsViewModelTest {
         runTest {
             coEvery { repository.getShorts(any()) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertTrue(viewModel.uiState.value is UiState.Error)
@@ -149,7 +262,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(4) } returns listOf(initial[0]) // duplicate only
             coEvery { repository.getShorts(5) } returns listOf(video("12"))
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.loadMore()
             testDispatcher.scheduler.advanceUntilIdle()
@@ -168,7 +281,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(2) } returns emptyList()
             coEvery { repository.getVideoById("requested") } returns requested
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.startFrom("requested")
             testDispatcher.scheduler.advanceUntilIdle()
@@ -183,7 +296,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(1) } returns listOf(video("feed1"))
             coEvery { repository.getShorts(2) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.startFrom("feed1")
             testDispatcher.scheduler.advanceUntilIdle()
@@ -199,7 +312,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(2) } returns emptyList()
             coEvery { repository.getVideoById("requested") } returns video("requested")
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             viewModel.startFrom("requested")
             firstPage.complete(listOf(video("feed1")))
             testDispatcher.scheduler.advanceUntilIdle()
@@ -215,7 +328,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(2) } returns emptyList()
             coEvery { repository.getVideoById("requested") } returns video("requested")
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.startFrom("requested")
             testDispatcher.scheduler.advanceUntilIdle()
@@ -236,7 +349,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(1) } returns listOf(short)
             coEvery { repository.getShorts(2) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.onPageSettled(short)
@@ -255,7 +368,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(1) } returns listOf(first, second)
             coEvery { repository.getShorts(2) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.onPageSettled(first)
@@ -275,7 +388,7 @@ class ShortsViewModelTest {
             coEvery { repository.getShorts(1) } returns listOf(short)
             coEvery { repository.getShorts(2) } returns emptyList()
 
-            val viewModel = ShortsViewModel(repository, settings, history)
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
             testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.onPageSettled(short)

@@ -7,10 +7,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -20,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +60,8 @@ fun ShortsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val sources by viewModel.playbackSources.collectAsState()
     val playbackErrors by viewModel.playbackErrors.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val refreshError by viewModel.refreshError.collectAsState()
 
     LaunchedEffect(startVideoId) {
         if (startVideoId != null) viewModel.startFrom(startVideoId)
@@ -66,21 +71,56 @@ fun ShortsScreen(
         onDispose { viewModel.cancelPendingRecord() }
     }
 
-    when (val state = uiState) {
-        UiState.Loading -> LoadingScreen()
-        is UiState.Error -> ErrorScreen(state.message, onRetry = viewModel::reload)
-        is UiState.Success ->
-            if (state.data.isEmpty()) {
-                EmptyScreen(stringResource(R.string.shorts_empty))
-            } else {
-                ShortsPager(
-                    videos = state.data,
-                    sources = sources,
-                    playbackErrors = playbackErrors,
-                    viewModel = viewModel,
-                    navController = navController,
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (val state = uiState) {
+            UiState.Loading -> LoadingScreen()
+            is UiState.Error -> ErrorScreen(state.message, onRetry = viewModel::reload)
+            is UiState.Success ->
+                if (state.data.isEmpty()) {
+                    EmptyScreen(stringResource(R.string.shorts_empty))
+                } else {
+                    ShortsPager(
+                        videos = state.data,
+                        sources = sources,
+                        playbackErrors = playbackErrors,
+                        viewModel = viewModel,
+                        navController = navController,
+                    )
+                }
+        }
+
+        if (isRefreshing) {
+            LinearProgressIndicator(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp),
+                color = Color.White,
+                trackColor = Color.White.copy(alpha = 0.3f),
+            )
+        }
+
+        refreshError?.let { message ->
+            Row(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 20.dp)
+                        .background(Color.Black.copy(alpha = 0.8f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = message,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(onClick = viewModel::dismissRefreshError) {
+                    Text(stringResource(R.string.action_cancel), color = Color.White)
+                }
             }
+        }
     }
 }
 
