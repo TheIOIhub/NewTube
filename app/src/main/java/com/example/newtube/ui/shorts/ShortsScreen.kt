@@ -58,7 +58,6 @@ import com.example.newtube.ui.common.EmptyScreen
 import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.UiState
-import com.example.newtube.ui.video.mediaItem
 import dagger.hilt.android.EntryPointAccessors
 
 @Composable
@@ -176,10 +175,12 @@ private fun ShortsPager(
     }
 
     // Ranking indices in the preload manager follow the resolved feed, so an
-    // unresolved clip never occupies a slot with an empty MediaItem.
+    // unresolved clip never occupies a slot with an empty source. Keep the
+    // PlaybackSources (not just MediaItems) so a Merged clip registers its
+    // audio track with the manager as well.
     val resolvedVideos = remember(videos, sources) { videos.filter { sources[it.id] != null } }
-    val mediaItems =
-        remember(resolvedVideos, sources) { resolvedVideos.map { sources[it.id]!!.mediaItem() } }
+    val resolvedSources =
+        remember(resolvedVideos, sources) { resolvedVideos.map { sources[it.id]!! } }
 
     val requestedStartId by viewModel.requestedStartId.collectAsState()
     val targetIndex = if (requestedStartId == null) -1 else videos.indexOfFirst { it.id == requestedStartId }
@@ -202,8 +203,8 @@ private fun ShortsPager(
 
     // The controller owns the sliding window; the pager only tells it which
     // items exist and which one the user settled on.
-    LaunchedEffect(pagerState.currentPage, mediaItems) {
-        controller.setItems(mediaItems)
+    LaunchedEffect(pagerState.currentPage, resolvedSources) {
+        controller.setItems(resolvedSources)
     }
 
     // A single prepare path: play only when the active clip's source is ready.

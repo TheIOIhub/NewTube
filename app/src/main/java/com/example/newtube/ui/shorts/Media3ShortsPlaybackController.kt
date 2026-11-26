@@ -13,6 +13,8 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.preload.DefaultPreloadManager
 import androidx.media3.exoplayer.source.preload.TargetPreloadStatusControl
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -20,6 +22,18 @@ import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.ui.video.mediaItem
+
+/**
+ * All URIs that must be fed to the player for [this] source. A [PlaybackSource.Merged]
+ * has a separate audio track, so reducing it to [PlaybackSource.mediaItem] (video
+ * only) would make the Shorts silent; both URIs must be registered.
+ */
+internal fun PlaybackSource.shortSourceUrls(): List<String> =
+    when (this) {
+        is PlaybackSource.Hls -> listOf(url)
+        is PlaybackSource.Progressive -> listOf(url)
+        is PlaybackSource.Merged -> listOf(videoUrl, audioUrl)
+    }
 
 /**
  * Owns the single player used by the Shorts pager and the preload manager that
@@ -81,28 +95,19 @@ class Media3ShortsPlaybackController(
             looper,
         )
 
+    /** Resolved feed in pager order, retained so the window follows the settled index. */
+    private var feed: List<PlaybackSource> = emptyList()
+    private var currentIndex = 0
     private val managedItems = mutableMapOf<MediaItem, Int>()
 
-    /** Keeps the manager's window aligned with the resolved feed around [currentIndex]. */
-    fun setItems(items: List<MediaItem>) {
+    /**
+     * Replaces the window sources. The controller keeps [feed] so [setCurrentIndex]
+     * can recompute the window without waiting for the pager's `currentPage` event.
+     */
+    fun setItems(sources: List<PlaybackSource>) {
         onApplicationLooper {
-            val window = preloadWindow(currentIndex, items.size)
-            val wanted = window.map { items[it] }.toSet()
-            managedItems.keys.toList().forEach { item ->
-                if (item !in wanted) {
-                    preloadManager.remove(item)
-                    managedItems.remove(item)
-                }
-            }
-            for (index in window) {
-                val item = items[index]
-                if (managedItems[item] == index) continue
-                if (managedItems.containsKey(item)) preloadManager.remove(item)
-                preloadManager.add(item, index)
-                managedItems[item] = index
-            }
-            statusControl.itemCount = items.size
-            preloadManager.invalidate()
+            feed = sources
+            syncManagedWindow()
         }
     }
 
@@ -111,7 +116,9 @@ class Media3ShortsPlaybackController(
             currentIndex = index
             statusControl.currentIndex = index
             preloadManager.setCurrentPlayingIndex(index)
-            preloadManager.invalidate()
+            // The settled index may differ from the one setItems saw: re-run the
+            // managed-set diff here so both forward neighbours are preloaded.
+            syncManagedWindow()
         }
     }
 
@@ -119,7 +126,9 @@ class Media3ShortsPlaybackController(
     fun play(source: PlaybackSource) {
         onApplicationLooper {
             val item = source.mediaItem()
-            val mediaSource = preloadManager.getMediaSource(item) ?: mediaSourceFactory.createMediaSource(item)
+            // A Merged source registered with the manager keeps its audio track;
+            // the fallback also goes through shortSourceUrls(), never video-only.
+            val mediaSource = preloadManager.getMediaSource(item) ?: source.asManagedMediaSource()
             player.setMediaSource(mediaSource)
             player.prepare()
             player.playWhenReady = true
@@ -139,7 +148,38 @@ class Media3ShortsPlaybackController(
         player.release()
     }
 
-    private var currentIndex = 0
+    private fun syncManagedWindow() {
+        val diff =
+            managedWindowDiff(
+                managedItems,
+                feed.map { it.mediaItem() },
+                currentIndex,
+            )
+        diff.remove.forEach { item ->
+            preloadManager.remove(item)
+            managedItems.remove(item)
+        }
+        diff.add.forEach { (item, index) ->
+            preloadManager.add(feed[index].asManagedMediaSource(), index)
+            managedItems[item] = index
+        }
+        statusControl.itemCount = feed.size
+        preloadManager.invalidate()
+    }
+
+    /**
+     * Builds the source registered with the manager. Media3 1.4.1's
+     * `BasePreloadManager.add(MediaSource, rank)` wraps this in a
+     * `PreloadMediaSource`, whose `getMediaItem()` delegates to the first child —
+     * so a MergingMediaSource is still found by `getMediaSource(video MediaItem)`.
+     */
+    private fun PlaybackSource.asManagedMediaSource(): MediaSource {
+        val parts =
+            shortSourceUrls().map { url ->
+                mediaSourceFactory.createMediaSource(MediaItem.fromUri(url))
+            }
+        return if (parts.size == 1) parts.single() else MergingMediaSource(*parts.toTypedArray())
+    }
 
     private fun onApplicationLooper(action: () -> Unit) {
         if (Looper.myLooper() == looper) {
