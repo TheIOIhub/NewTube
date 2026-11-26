@@ -3,12 +3,12 @@ package com.example.newtube.ui.video
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import androidx.media3.common.Player
+import androidx.media3.datasource.DataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.LoadControl
 import com.example.newtube.model.PlaybackSource
-import com.google.android.exoplayer2.DefaultLoadControl
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.LoadControl
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.upstream.DataSource
 
 internal data class BufferDurations(
     val min: Int,
@@ -29,7 +29,8 @@ internal fun shortsLoadControl(): DefaultLoadControl =
     DefaultLoadControl
         .Builder()
         .setBufferDurationsMs(
-            // ExoPlayer 2.19 rejects minBufferMs < bufferForPlaybackAfterRebufferMs.
+            // Media3 1.4.1 rejects minBufferMs < bufferForPlaybackAfterRebufferMs;
+            // the effective minimum is therefore 1500 ms.
             maxOf(SHORTS_BUFFER_DURATIONS.min, SHORTS_BUFFER_DURATIONS.afterRebuffer),
             SHORTS_BUFFER_DURATIONS.max,
             SHORTS_BUFFER_DURATIONS.forPlayback,

@@ -49,8 +49,13 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
-    // ExoPlayer (playback media cache)
-    implementation("com.google.android.exoplayer:exoplayer:2.19.0")
+    // Media3 (playback media cache). Cache APIs ship inside media3-datasource;
+    // there is no separate `media3-datasource-cache` artifact in 1.4.1.
+    // The Media3 POMs expose these only at runtime, so the types used by the
+    // cache API (common + database) are declared explicitly for compilation.
+    implementation("androidx.media3:media3-common:1.4.1")
+    implementation("androidx.media3:media3-database:1.4.1")
+    implementation("androidx.media3:media3-datasource:1.4.1")
 
     implementation("androidx.room:room-runtime:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")

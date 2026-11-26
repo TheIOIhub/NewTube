@@ -41,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import coil.imageLoader
@@ -56,7 +57,6 @@ import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.video.ExoPlayerHolder
 import com.example.newtube.ui.video.VideoPlayer
 import com.example.newtube.ui.video.shortsLoadControl
-import com.google.android.exoplayer2.ui.AspectRatioFrameLayout
 import dagger.hilt.android.EntryPointAccessors
 
 @Composable

@@ -1,6 +1,6 @@
 package com.example.newtube.di
 
-import com.google.android.exoplayer2.upstream.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheDataSource
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent

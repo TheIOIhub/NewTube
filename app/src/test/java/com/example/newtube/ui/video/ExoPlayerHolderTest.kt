@@ -3,10 +3,10 @@ package com.example.newtube.ui.video
 import android.content.Context
 import android.net.Uri
 import android.os.Looper
+import androidx.media3.datasource.DataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.ExoPlayer
 import com.example.newtube.model.PlaybackSource
-import com.google.android.exoplayer2.DefaultLoadControl
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.upstream.DataSource
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkConstructor
