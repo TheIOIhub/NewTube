@@ -62,6 +62,58 @@ class ShortsRemoteMediatorTest {
             coVerify(exactly = 1) { cache.replaceFeed(any()) }
         }
 
+    @Test fun appendIgnoresOffsetLikeNextKeyAndUsesSequentialPage() =
+        runTest {
+            val firstPage = (1..10).map { video("$it") }
+            val secondPage = listOf(video("next"))
+            coEvery { repository.getShorts(1) } returns firstPage
+            coEvery { repository.getShorts(2) } returns secondPage
+            mediator.load(LoadType.REFRESH, emptyState())
+
+            // Room's key is a row offset (20), not network page 20.
+            val state =
+                PagingState(
+                    pages = listOf(PagingSource.LoadResult.Page(firstPage, null, 20)),
+                    anchorPosition = 9,
+                    config = PAGING_CONFIG,
+                    leadingPlaceholderCount = 0,
+                )
+
+            val result = mediator.load(LoadType.APPEND, state)
+
+            assertTrue(result is RemoteMediator.MediatorResult.Success)
+            coVerify(exactly = 1) { repository.getShorts(2) }
+            coVerify(exactly = 0) { repository.getShorts(20) }
+            coVerify(exactly = 1) { cache.appendFeed(secondPage) }
+        }
+
+    @Test fun appendAfterFailedRefreshKeepsSequentialPage() =
+        runTest {
+            var calls = 0
+            coEvery { repository.getShorts(1) } coAnswers {
+                if (calls++ == 0) throw IOException("offline") else listOf(video("retried"))
+            }
+            val failed = mediator.load(LoadType.REFRESH, emptyState())
+            assertTrue(failed is RemoteMediator.MediatorResult.Error)
+
+            val state =
+                PagingState(
+                    pages =
+                        listOf(
+                            PagingSource.LoadResult.Page(listOf(video("cached")), null, 10),
+                        ),
+                    anchorPosition = 0,
+                    config = PAGING_CONFIG,
+                    leadingPlaceholderCount = 0,
+                )
+
+            val result = mediator.load(LoadType.APPEND, state)
+
+            assertTrue(result is RemoteMediator.MediatorResult.Success)
+            coVerify(exactly = 2) { repository.getShorts(1) }
+            coVerify(exactly = 0) { repository.getShorts(10) }
+        }
+
     @Test fun refreshFailureReturnsErrorWithoutClearingCache() =
         runTest {
             val failure = IOException("offline")

@@ -29,13 +29,10 @@ class ShortsRemoteMediator @Inject constructor(
         val page =
             when (loadType) {
                 LoadType.REFRESH -> 1
-                LoadType.APPEND -> {
-                    // Room keys are row offsets, not network page numbers. Honour
-                    // the state key only when this mediator has not advanced its
-                    // own counter yet (e.g. an append on a fresh instance).
-                    val statePage = state.pages.lastOrNull { it.data.isNotEmpty() }?.nextKey
-                    if (nextPage == 1 && statePage != null && statePage > 1) statePage else nextPage
-                }
+                // Room paging keys are row offsets (10, 20, ...), not network
+                // page numbers. Always use our own sequential counter, including
+                // on recovery paths after a failed REFRESH.
+                LoadType.APPEND -> nextPage
                 LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
             }
 
