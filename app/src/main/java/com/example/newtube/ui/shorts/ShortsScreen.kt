@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,8 +41,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import coil.imageLoader
@@ -54,9 +58,7 @@ import com.example.newtube.ui.common.EmptyScreen
 import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.UiState
-import com.example.newtube.ui.video.ExoPlayerHolder
-import com.example.newtube.ui.video.VideoPlayer
-import com.example.newtube.ui.video.shortsLoadControl
+import com.example.newtube.ui.video.mediaItem
 import dagger.hilt.android.EntryPointAccessors
 
 @Composable
@@ -156,10 +158,10 @@ private fun ShortsPager(
 ) {
     val pagerState = rememberPagerState(pageCount = { videos.size })
 
-    // One player for the whole pager; it is released only when Shorts leaves
-    // composition, never between pages.
+    // One player and one preload manager for the whole pager; both are created
+    // from the same components and released only when Shorts leaves composition.
     val context = LocalContext.current
-    val holder =
+    val controller =
         remember {
             val dataSourceFactory =
                 EntryPointAccessors
@@ -167,11 +169,17 @@ private fun ShortsPager(
                         context.applicationContext,
                         PlaybackCacheEntryPoint::class.java,
                     ).cacheDataSourceFactory()
-            ExoPlayerHolder(context, dataSourceFactory, shortsLoadControl())
+            Media3ShortsPlaybackController(context, dataSourceFactory)
         }
     DisposableEffect(Unit) {
-        onDispose { holder.release() }
+        onDispose { controller.release() }
     }
+
+    // Ranking indices in the preload manager follow the resolved feed, so an
+    // unresolved clip never occupies a slot with an empty MediaItem.
+    val resolvedVideos = remember(videos, sources) { videos.filter { sources[it.id] != null } }
+    val mediaItems =
+        remember(resolvedVideos, sources) { resolvedVideos.map { sources[it.id]!!.mediaItem() } }
 
     val requestedStartId by viewModel.requestedStartId.collectAsState()
     val targetIndex = if (requestedStartId == null) -1 else videos.indexOfFirst { it.id == requestedStartId }
@@ -184,14 +192,24 @@ private fun ShortsPager(
     }
 
     LaunchedEffect(pagerState.currentPage, videos.size) {
-        val currentVideo = videos.getOrNull(pagerState.currentPage) ?: return@LaunchedEffect
-        viewModel.onPageChanged(pagerState.currentPage)
-        // VideoPlayer prepares the resolved source on mount; only clear the
-        // shared player here while the active page has no source yet.
-        if (sources[currentVideo.id] == null) holder.stop()
-        if (pagerState.currentPage >= videos.size - LOAD_MORE_THRESHOLD) {
+        val page = pagerState.currentPage
+        if (videos.getOrNull(page) == null) return@LaunchedEffect
+        viewModel.onPageChanged(page)
+        if (page >= videos.size - LOAD_MORE_THRESHOLD) {
             viewModel.loadMore()
         }
+    }
+
+    // The controller owns the sliding window; the pager only tells it which
+    // items exist and which one the user settled on.
+    LaunchedEffect(pagerState.currentPage, mediaItems) {
+        controller.setItems(mediaItems)
+    }
+
+    // A single prepare path: play only when the active clip's source is ready.
+    val activeSource = sources[videos.getOrNull(pagerState.currentPage)?.id]
+    LaunchedEffect(pagerState.currentPage, activeSource) {
+        if (activeSource != null) controller.play(activeSource) else controller.stop()
     }
 
     // History starts on the settled page: currentPage changes mid-swipe and
@@ -199,6 +217,11 @@ private fun ShortsPager(
     LaunchedEffect(pagerState.settledPage, videos.size) {
         val video = videos.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
         viewModel.onPageSettled(video)
+    }
+    LaunchedEffect(pagerState.settledPage, resolvedVideos) {
+        val video = videos.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
+        val index = resolvedVideos.indexOfFirst { it.id == video.id }
+        if (index >= 0) controller.setCurrentIndex(index)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -209,7 +232,7 @@ private fun ShortsPager(
             val video = videos[page]
             ShortPage(
                 video = video,
-                holder = holder,
+                player = controller.player,
                 source = sources[video.id],
                 playbackError = playbackErrors[video.id],
                 isActive = pagerState.currentPage == page,
@@ -243,7 +266,7 @@ private fun ShortsPager(
 @Composable
 private fun ShortPage(
     video: Video,
-    holder: ExoPlayerHolder,
+    player: ExoPlayer,
     source: PlaybackSource?,
     playbackError: String?,
     isActive: Boolean,
@@ -262,17 +285,28 @@ private fun ShortPage(
         )
 
         if (isActive && source != null) {
-            VideoPlayer(
-                playback = source,
-                holder = holder,
+            // No prepare here: the controller prepared this clip before the
+            // surface was attached, so first frames come from the preloaded
+            // source.
+            AndroidView(
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        this.player = player
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
-                loop = true,
-                useController = false,
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
-                showQualityControl = false,
-                showFullscreenControl = false,
-                showPipControl = false,
-                tapToTogglePlayback = true,
+            )
+            Box(
+                modifier =
+                    Modifier.fillMaxSize().clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {
+                        if (player.isPlaying) player.pause() else player.play()
+                    },
             )
         }
 
