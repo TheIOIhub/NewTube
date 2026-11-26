@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
+import coil.imageLoader
+import coil.request.ImageRequest
 import com.example.newtube.R
 import com.example.newtube.di.PlaybackCacheEntryPoint
 import com.example.newtube.model.PlaybackSource
@@ -71,6 +73,19 @@ fun ShortsScreen(
 
     LaunchedEffect(startVideoId) {
         if (startVideoId != null) viewModel.startFrom(startVideoId)
+    }
+
+    // Warm the shared ImageLoader so the first pages don't show a blank box.
+    val context = LocalContext.current
+    LaunchedEffect(uiState) {
+        val state = uiState
+        if (state is UiState.Success) {
+            state.data.take(4).forEach { video ->
+                context.imageLoader.enqueue(
+                    ImageRequest.Builder(context).data(video.thumbnailUrl).build(),
+                )
+            }
+        }
     }
 
     DisposableEffect(Unit) {
