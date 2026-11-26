@@ -2,6 +2,7 @@ package com.example.newtube.di
 
 import android.content.Context
 import com.example.newtube.account.AccountRepositoryImpl
+import com.example.newtube.account.AccountStoreKeys
 import com.example.newtube.account.ClientCredentialsProvider
 import com.example.newtube.account.EncryptedPrefsSecretStore
 import com.example.newtube.account.OAuthApi
@@ -9,6 +10,7 @@ import com.example.newtube.account.SecretStore
 import com.example.newtube.account.YouTubeOAuthApi
 import com.example.newtube.account.YouTubeTvCredentialsProvider
 import com.example.newtube.account.YouTubeTvUserAgent
+import com.example.newtube.account.parseStoredAccount
 import com.example.newtube.data.BuildConfig
 import com.example.newtube.innertube.InnerTubeService
 import com.example.newtube.innertube.YouTubeInnerTubeService
@@ -18,10 +20,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
@@ -35,7 +33,7 @@ import javax.inject.Singleton
 object AccountModule {
     private const val OAUTH_CLIENT = "oauth"
     private const val INNERTUBE_CLIENT = "innertube"
-    private const val DEVICE_ID = "deviceId"
+    private const val DEVICE_ID_QUALIFIER = "deviceId"
 
     @Provides
     @Singleton
@@ -82,16 +80,7 @@ object AccountModule {
         YouTubeInnerTubeService(
             client = client,
             pageIdProvider = {
-                store
-                    .get("account_json")
-                    ?.let { raw ->
-                        runCatching {
-                            Json.parseToJsonElement(raw.removePrefix("\uFEFF"))
-                                .jsonObject["pageId"]
-                                ?.jsonPrimitive
-                                ?.contentOrNull
-                        }.getOrNull()
-                    }
+                parseStoredAccount(store.get(AccountStoreKeys.ACCOUNT_JSON))?.pageId
             },
         )
 
@@ -109,12 +98,12 @@ object AccountModule {
 
     @Provides
     @Singleton
-    @Named(DEVICE_ID)
+    @Named(DEVICE_ID_QUALIFIER)
     fun provideDeviceId(store: SecretStore): String {
-        store.get("device_id")?.let { return it }
+        store.get(AccountStoreKeys.DEVICE_ID)?.let { return it }
         val bytes = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val id = bytes.joinToString("") { "%02x".format(it) }
-        store.put("device_id", id)
+        store.put(AccountStoreKeys.DEVICE_ID, id)
         return id
     }
 
@@ -125,7 +114,7 @@ object AccountModule {
         oauth: OAuthApi,
         innerTube: InnerTubeService,
         store: SecretStore,
-        @Named(DEVICE_ID) deviceId: String,
+        @Named(DEVICE_ID_QUALIFIER) deviceId: String,
     ): AccountRepository =
         AccountRepositoryImpl(
             credentials = credentials,

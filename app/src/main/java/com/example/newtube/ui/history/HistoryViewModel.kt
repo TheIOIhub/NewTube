@@ -44,8 +44,16 @@ class HistoryViewModel
         val uiState: StateFlow<HistoryUiState> = mutableState.asStateFlow()
 
         private var continuation: String? = null
-        private var remoteLoaded = false
+
+        /**
+         * True once a remote fetch reached a terminal answer. A failure keeps
+         * this true so local-history or settings emissions do not silently
+         * re-hit InnerTube (and its token refresh) on a dead session; only an
+         * explicit [retry] or a source change clears it.
+         */
+        private var remoteAttempted = false
         private var loadingRemote = false
+        private var lastSignedIn = false
 
         init {
             viewModelScope.launch {
@@ -56,14 +64,22 @@ class HistoryViewModel
                 ) { local, account, settings ->
                     HistoryInput(
                         local = local,
+                        signedIn = account is AccountState.SignedIn,
                         remoteEnabled = account !is AccountState.SignedOut && settings.useRemoteHistory,
                     )
                 }.collect { input ->
+                    // A fresh sign-in (e.g. after the session expired) must
+                    // retry the remote feed; a failed session must not.
+                    if (input.signedIn && !lastSignedIn) {
+                        remoteAttempted = false
+                        continuation = null
+                    }
+                    lastSignedIn = input.signedIn
                     mutableState.value = mutableState.value.copy(local = input.local)
                     if (input.remoteEnabled) {
-                        if (!remoteLoaded && !loadingRemote) loadRemote()
+                        if (!remoteAttempted && !loadingRemote) loadRemote()
                     } else {
-                        remoteLoaded = false
+                        remoteAttempted = false
                         continuation = null
                         mutableState.value =
                             mutableState.value.copy(
@@ -80,7 +96,7 @@ class HistoryViewModel
         }
 
         fun retry() {
-            remoteLoaded = false
+            remoteAttempted = false
             loadRemote()
         }
 
@@ -110,7 +126,7 @@ class HistoryViewModel
                         val unique = LinkedHashMap<String, RemoteVideo>()
                         merged.forEach { unique.putIfAbsent(it.id, it) }
                         this.continuation = result.data.continuation
-                        remoteLoaded = true
+                        remoteAttempted = true
                         mutableState.value =
                             mutableState.value.copy(
                                 remote = unique.values.toList(),
@@ -122,7 +138,7 @@ class HistoryViewModel
                             )
                     }
                     AccountResult.NeedsSignIn -> {
-                        remoteLoaded = false
+                        remoteAttempted = true
                         mutableState.value =
                             mutableState.value.copy(
                                 remote = emptyList(),
@@ -133,18 +149,23 @@ class HistoryViewModel
                             )
                     }
                     AccountResult.Network, AccountResult.Server -> {
-                        remoteLoaded = false
+                        remoteAttempted = true
                         mutableState.value =
-                            mutableState.value.copy(
-                                remote = emptyList(),
-                                remoteSource = false,
-                                hasMore = false,
-                                error = true,
-                                loadingMore = false,
-                            )
+                            if (replace) {
+                                mutableState.value.copy(
+                                    remote = emptyList(),
+                                    remoteSource = false,
+                                    hasMore = false,
+                                    error = true,
+                                    loadingMore = false,
+                                )
+                            } else {
+                                // A failed page must not wipe the rows already on screen.
+                                mutableState.value.copy(error = true, loadingMore = false)
+                            }
                     }
                     AccountResult.ParseEmpty -> {
-                        remoteLoaded = true
+                        remoteAttempted = true
                         this.continuation = null
                         mutableState.value =
                             mutableState.value.copy(
@@ -164,6 +185,7 @@ class HistoryViewModel
 
         private data class HistoryInput(
             val local: List<WatchHistoryEntry>,
+            val signedIn: Boolean,
             val remoteEnabled: Boolean,
         )
     }

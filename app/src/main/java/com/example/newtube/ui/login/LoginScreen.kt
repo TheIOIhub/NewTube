@@ -1,5 +1,6 @@
 package com.example.newtube.ui.login
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +58,7 @@ fun LoginScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.login_copied)
+    var manualWaiting by remember { mutableStateOf<LoginState.Waiting?>(null) }
 
     LaunchedEffect(Unit) { viewModel.start() }
     LaunchedEffect(state) {
@@ -98,7 +101,13 @@ fun LoginScreen(
                                 val intent =
                                     Intent(Intent.ACTION_VIEW, Uri.parse(current.verificationUrl))
                                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
+                                try {
+                                    context.startActivity(intent)
+                                } catch (_: ActivityNotFoundException) {
+                                    // A TV without a browser: show the URL and code to
+                                    // type on a phone or computer instead of crashing.
+                                    manualWaiting = current
+                                }
                             },
                             onCopy = {
                                 val clipboard =
@@ -136,6 +145,27 @@ fun LoginScreen(
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+        )
+    }
+
+    manualWaiting?.let { waiting ->
+        AlertDialog(
+            onDismissRequest = { manualWaiting = null },
+            title = { Text(stringResource(R.string.login_no_browser_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.login_no_browser_body,
+                        waiting.verificationUrl,
+                        waiting.userCode,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { manualWaiting = null }) {
+                    Text(stringResource(R.string.login_ok))
+                }
+            },
         )
     }
 }
@@ -223,4 +253,5 @@ private fun LoginError.messageRes(): Int =
         LoginError.ACCESS_DENIED -> R.string.login_error_denied
         LoginError.EXPIRED -> R.string.login_error_expired
         LoginError.NETWORK -> R.string.login_error_network
+        LoginError.UNAVAILABLE -> R.string.login_error_unavailable
     }

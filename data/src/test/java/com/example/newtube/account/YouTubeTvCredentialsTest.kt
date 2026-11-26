@@ -82,6 +82,46 @@ class YouTubeTvCredentialsTest {
             assertNotEquals(callerThread, fetchThreads.first())
         }
 
+    @Test
+    fun `invalidate forces the next get to scrape again`() =
+        runTest {
+            var fetches = 0
+            val provider =
+                YouTubeTvCredentialsProvider(
+                    fetcher = { url ->
+                        fetches++
+                        if (url.endsWith("/tv")) html else js
+                    },
+                    store = InMemorySecretStore(),
+                    clock = { now },
+                )
+            provider.get()
+            provider.get()
+            assertEquals(2, fetches)
+            provider.invalidate()
+            provider.get()
+            assertEquals(4, fetches)
+        }
+
+    @Test(expected = CredentialsUnavailableException::class)
+    fun `an unrecognisable page fails as unavailable`() =
+        runTest {
+            YouTubeTvCredentialsProvider(
+                fetcher = { "<html></html>" },
+                store = InMemorySecretStore(),
+                clock = { now },
+            ).get()
+        }
+
+    @Test
+    fun `credentials and tokens hide their secrets when printed`() {
+        val credentials = ClientCredentials("client-id", "client-secret-value")
+        val tokens = Tokens("access-value", "refresh-value", 10)
+        assertTrue(!credentials.toString().contains("client-secret-value"))
+        assertTrue(!tokens.toString().contains("refresh-value"))
+        assertTrue(!tokens.toString().contains("access-value"))
+    }
+
     private fun resource(path: String): String = checkNotNull(javaClass.getResource(path)).readText()
 }
 
@@ -97,7 +137,7 @@ private class InMemorySecretStore : SecretStore {
         values[key] = value
     }
 
-    override fun clear() {
-        values.clear()
+    override fun remove(key: String) {
+        values.remove(key)
     }
 }

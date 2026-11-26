@@ -121,4 +121,27 @@ class SubscriptionsViewModelTest {
             assertEquals(1, vm.uiState.value.items.size)
             assertFalse(vm.uiState.value.error)
         }
+
+    @Test
+    fun `a failed second page keeps the rows and retry resumes the same continuation`() =
+        runTest {
+            every { account.state } returns MutableStateFlow(signedIn)
+            coEvery { account.subscriptions(null) } returns
+                AccountResult.Success(AccountPage(listOf(video("a")), "c2"))
+            coEvery { account.subscriptions("c2") } returnsMany
+                listOf(
+                    AccountResult.Network,
+                    AccountResult.Success(AccountPage(listOf(video("b")), null)),
+                )
+            vm.load()
+            advanceUntilIdle()
+            vm.loadMore()
+            advanceUntilIdle()
+            assertEquals(listOf("a"), vm.uiState.value.items.map { it.id })
+            assertTrue(vm.uiState.value.error)
+            vm.retry()
+            advanceUntilIdle()
+            assertEquals(listOf("a", "b"), vm.uiState.value.items.map { it.id })
+            assertFalse(vm.uiState.value.error)
+        }
 }

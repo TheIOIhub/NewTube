@@ -27,8 +27,8 @@ class EncryptedPrefsSecretStore(
         prefs.edit().putString(key, value).apply()
     }
 
-    override fun clear() {
-        prefs.edit().clear().apply()
+    override fun remove(key: String) {
+        prefs.edit().remove(key).apply()
     }
 
     private companion object {

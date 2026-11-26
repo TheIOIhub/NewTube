@@ -13,15 +13,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 class AccountRepositoryImplTest {
     private val store = FakeSecretStore()
     private val oauth = FakeOAuthApi()
     private val innerTube = FakeInnerTubeService()
-    private val credentials =
-        object : ClientCredentialsProvider {
-            override suspend fun get() = ClientCredentials("id", "secret")
-        }
+    private val credentials = FakeCredentials()
     private val clock = FakeClock()
     private val repo =
         AccountRepositoryImpl(
@@ -110,6 +108,42 @@ class AccountRepositoryImplTest {
         }
 
     @Test
+    fun `a credentials failure reports UNAVAILABLE instead of throwing`() =
+        runTest {
+            credentials.failWith = CredentialsUnavailableException("no client pair")
+            val states = repo.loginFlow().toList()
+            assertEquals(LoginState.Error(LoginError.UNAVAILABLE), states.last())
+        }
+
+    @Test
+    fun `invalid_client re-scrapes the pair and retries the refresh`() =
+        runTest {
+            seedSignedIn(expiresAt = clock.now - 1)
+            oauth.invalidClientOnce = true
+            val result = repo.history()
+            assertTrue(result is AccountResult.Success)
+            assertEquals(1, credentials.invalidations)
+            assertEquals(2, oauth.refreshCalls)
+        }
+
+    @Test
+    fun `sign out keeps the device id and the client pair`() =
+        runTest {
+            seedSignedIn(expiresAt = clock.now + 60_000)
+            store.put("device_id", "0011223344556677")
+            store.put("client_id", "id")
+            store.put("client_secret", "secret")
+            store.put("client_fetched_at", "1")
+            repo.signOut()
+            assertNull(store.get("access_token"))
+            assertNull(store.get("refresh_token"))
+            assertNull(store.get("account_json"))
+            assertEquals("0011223344556677", store.get("device_id"))
+            assertEquals("id", store.get("client_id"))
+            assertEquals("secret", store.get("client_secret"))
+        }
+
+    @Test
     fun `sign out keeps local history untouched`() =
         runTest {
             seedSignedIn(expiresAt = clock.now + 60_000)
@@ -162,8 +196,22 @@ private class FakeSecretStore : SecretStore {
         values[key] = value
     }
 
-    override fun clear() {
-        values.clear()
+    override fun remove(key: String) {
+        values.remove(key)
+    }
+}
+
+private class FakeCredentials : ClientCredentialsProvider {
+    var failWith: IOException? = null
+    var invalidations = 0
+
+    override suspend fun get(): ClientCredentials {
+        failWith?.let { throw it }
+        return ClientCredentials("id", "secret")
+    }
+
+    override fun invalidate() {
+        invalidations++
     }
 }
 
@@ -171,6 +219,7 @@ private class FakeOAuthApi : OAuthApi {
     val pollResults = ArrayDeque<TokenPoll>()
     var refreshCalls = 0
     var refreshFailsWithInvalidGrant = false
+    var invalidClientOnce = false
 
     override suspend fun requestDeviceCode(
         credentials: ClientCredentials,
@@ -187,6 +236,10 @@ private class FakeOAuthApi : OAuthApi {
         refreshToken: String,
     ): Tokens {
         refreshCalls++
+        if (invalidClientOnce) {
+            invalidClientOnce = false
+            throw InvalidClientException("invalid_client")
+        }
         if (refreshFailsWithInvalidGrant) throw InvalidGrantException("invalid_grant")
         return Tokens("fresh", null, 64_001)
     }

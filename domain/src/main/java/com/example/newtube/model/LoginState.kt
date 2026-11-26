@@ -18,4 +18,7 @@ enum class LoginError {
     ACCESS_DENIED,
     EXPIRED,
     NETWORK,
+
+    /** The TV client credentials could not be prepared at all. */
+    UNAVAILABLE,
 }

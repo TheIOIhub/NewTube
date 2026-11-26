@@ -21,7 +21,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,6 +35,7 @@ import androidx.navigation.NavController
 import com.example.newtube.R
 import com.example.newtube.ui.common.EmptyScreen
 import com.example.newtube.ui.common.ErrorScreen
+import com.example.newtube.ui.common.InlineBanner
 import com.example.newtube.ui.common.RemoteVideoCard
 import com.example.newtube.ui.common.VideoCardSkeleton
 import com.example.newtube.ui.shell.TabTopBar
@@ -61,7 +61,7 @@ fun SubscriptionsScreen(
                     onRetry = viewModel::retry,
                 )
             state.items.isEmpty() -> EmptyScreen(message = stringResource(R.string.subscriptions_empty))
-            else -> Feed(state = state, navController = navController, onLoadMore = viewModel::loadMore)
+            else -> Feed(state = state, navController = navController, onLoadMore = viewModel::loadMore, onRetry = viewModel::retry)
         }
     }
 }
@@ -71,22 +71,22 @@ private fun Feed(
     state: SubscriptionsUiState,
     navController: NavController,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         if (state.expired) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.session_expired),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { navController.navigate("login") }) {
-                    Text(stringResource(R.string.session_expired_action))
-                }
-            }
+            InlineBanner(
+                message = stringResource(R.string.session_expired),
+                action = stringResource(R.string.session_expired_action),
+                onAction = { navController.navigate("login") },
+            )
+        }
+        if (state.error) {
+            InlineBanner(
+                message = stringResource(R.string.login_error_network),
+                action = stringResource(R.string.retry),
+                onAction = onRetry,
+            )
         }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),

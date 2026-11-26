@@ -54,7 +54,9 @@ class SubscriptionsViewModel
         }
 
         fun retry() {
-            load()
+            // Resume a failed later page instead of throwing away the rows the
+            // user already has; a failed first page simply loads again.
+            if (mutableState.value.items.isEmpty()) load() else loadMore()
         }
 
         private suspend fun fetch(

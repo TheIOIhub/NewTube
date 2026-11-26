@@ -106,4 +106,46 @@ class HistoryViewModelTest {
             advanceUntilIdle()
             coVerify(exactly = 0) { local.record(any()) }
         }
+
+    @Test
+    fun `an expired session is not refetched after a settings emission`() =
+        runTest {
+            val settingsFlow = MutableStateFlow(AppSettings())
+            every { local.observeLocal() } returns flowOf(listOf(entry))
+            every { account.state } returns MutableStateFlow(AccountState.Expired(UserAccount("N", "e", "a")))
+            every { settings.settings } returns settingsFlow
+            coEvery { account.history(null) } returns AccountResult.NeedsSignIn
+            val vm = HistoryViewModel(local, account, settings)
+            advanceUntilIdle()
+            assertTrue(vm.uiState.value.expired)
+            coVerify(exactly = 1) { account.history(null) }
+
+            settingsFlow.value = AppSettings(defaultQuality = 1080)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { account.history(null) }
+        }
+
+    @Test
+    fun `signing in again after an expired session reloads the remote feed`() =
+        runTest {
+            val accountFlow = MutableStateFlow<AccountState>(AccountState.Expired(UserAccount("N", "e", "a")))
+            every { account.state } returns accountFlow
+            coEvery { account.history(null) } returnsMany
+                listOf(
+                    AccountResult.NeedsSignIn,
+                    AccountResult.Success(AccountPage(listOf(remote), null)),
+                )
+            val vm = HistoryViewModel(local, account, settings)
+            advanceUntilIdle()
+            assertTrue(vm.uiState.value.expired)
+            coVerify(exactly = 1) { account.history(null) }
+
+            accountFlow.value = signedIn
+            advanceUntilIdle()
+
+            coVerify(exactly = 2) { account.history(null) }
+            assertTrue(vm.uiState.value.remoteSource)
+            assertFalse(vm.uiState.value.expired)
+        }
 }

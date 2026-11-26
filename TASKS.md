@@ -73,7 +73,7 @@ Legend: ✅ done · ⚠️ partial · ⏳ not started
 |65| Subscriptions as the TV recent-video feed: two-column grid, continuation paging, skeletons, CTA, expired banner | ✅ |
 |66| History screen switches to read-only YouTube history when enabled; remote rows never persisted; local fallback banners | ✅ |
 |67| Best-effort notifications screen from `FEnotifications` with empty state and retry | ✅ |
-|68| Account strings, README/SPEC/TASKS update, 133 JVM tests and device QA on the TCL 6102H | ✅ |
+|68| Account strings, README/SPEC/TASKS update, 145 JVM tests and device QA on the TCL 6102H | ✅ |
 
 ## Phase 1–3 plan
 

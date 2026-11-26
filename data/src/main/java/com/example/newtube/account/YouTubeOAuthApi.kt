@@ -43,7 +43,11 @@ class YouTubeOAuthApi(
                 }
             val response = post(DEVICE_CODE_PATH, body)
             if (response.code !in 200..299) {
-                throw IOException("device code request failed with HTTP ${response.code}")
+                val error = errorCode(response.body)
+                if (error == "invalid_client") {
+                    throw InvalidClientException("the scraped client pair was rejected")
+                }
+                throw IOException("device code request failed with HTTP ${response.code}: $error")
             }
             val obj = jsonFormat.parseToJsonElement(response.body).jsonObject
             DeviceCode(
@@ -77,6 +81,7 @@ class YouTubeOAuthApi(
                     "slow_down" -> TokenPoll.SlowDown
                     "access_denied" -> TokenPoll.Denied
                     "expired_token" -> TokenPoll.Expired
+                    "invalid_client" -> throw InvalidClientException("the scraped client pair was rejected")
                     else -> throw IOException("token poll failed with HTTP ${response.code}: $error")
                 }
             }
@@ -101,6 +106,9 @@ class YouTubeOAuthApi(
                 val error = errorCode(response.body)
                 if (error == "invalid_grant") {
                     throw InvalidGrantException("refresh token is no longer valid")
+                }
+                if (error == "invalid_client") {
+                    throw InvalidClientException("the scraped client pair was rejected")
                 }
                 throw IOException("token refresh failed with HTTP ${response.code}: $error")
             }

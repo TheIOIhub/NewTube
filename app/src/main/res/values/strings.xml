@@ -50,11 +50,8 @@
     <string name="you_about">Про застосунок</string>
 
     <string name="subscriptions_title">Підписки</string>
-    <string name="subscriptions_signed_out_title">Підписки з’являться після входу в Google</string>
-    <string name="subscriptions_signed_out_body">Вхід у Google буде додано в наступному оновленні.</string>
 
     <string name="notifications_title">Сповіщення</string>
-    <string name="notifications_signed_out">Сповіщення з’являться після входу в Google.</string>
     <string name="notifications_empty">Немає нових сповіщень</string>
 
     <string name="history_title">Історія переглядів</string>
@@ -72,8 +69,12 @@
     <string name="login_error_denied">Доступ відхилено</string>
     <string name="login_error_expired">Код прострочено. Спробуйте ще раз</string>
     <string name="login_error_network">Немає з’єднання. Перевірте мережу</string>
+    <string name="login_error_unavailable">Не вдалося підготувати вхід. Перевірте з’єднання</string>
     <string name="login_retry">Спробувати ще</string>
     <string name="login_success">Готово</string>
+    <string name="login_no_browser_title">Немає браузера</string>
+    <string name="login_no_browser_body">Відкрийте %1$s на іншому пристрої та введіть код %2$s.</string>
+    <string name="login_ok">Зрозуміло</string>
 
     <string name="account_sign_in">Увійти в Google</string>
     <string name="account_sign_out">Вийти</string>

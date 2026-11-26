@@ -63,7 +63,6 @@ fun SettingsScreen(
                 SettingsRow(
                     title = signedInAccount.name.ifBlank { stringResource(R.string.you_guest) },
                     subtitle = signedInAccount.email,
-                    onClick = {},
                 )
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     TextButton(onClick = { signOutDialogOpen = true }) {
@@ -96,10 +95,15 @@ fun SettingsScreen(
             )
             SettingsSwitchRow(
                 title = stringResource(R.string.settings_use_remote_history),
-                subtitle = stringResource(R.string.settings_use_remote_history_disabled),
+                subtitle =
+                    if (signedInAccount == null) {
+                        stringResource(R.string.settings_use_remote_history_disabled)
+                    } else {
+                        null
+                    },
                 checked = settings.useRemoteHistory,
-                enabled = false,
-                onCheckedChange = {},
+                enabled = signedInAccount != null,
+                onCheckedChange = viewModel::setUseRemoteHistory,
             )
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                 TextButton(

@@ -50,8 +50,8 @@
 
 | Призначення | Запит | Особливості |
 |---|---|---|
-| Device code | `POST https://www.google.com/o/oauth2/device/code` | `client_id`/`client_secret` витягуються з TV base JS і кешуються в зашифрованому сховищі; scope як у TV-клієнта |
-| Токени | `POST https://www.googleapis.com/oauth2/v4/token` | `authorization_pending`, `slow_down`, `access_denied`, `expired_token`; refresh без ротації токена, `invalid_grant` = вихід |
+| Device code | `POST https://www.youtube.com/o/oauth2/device/code` | `client_id`/`client_secret` витягуються з TV base JS і кешуються в зашифрованому сховищі; scope як у TV-клієнта |
+| Токени | `POST https://www.youtube.com/o/oauth2/token` | `authorization_pending`, `slow_down`, `access_denied`, `expired_token`; refresh без ротації токена, `invalid_grant` = вихід, `invalid_client` = одноразовий повторний скрейп пари |
 | Профіль | `POST /youtubei/v1/account/accounts_list` | `returnPersonaAccounts: true`; власник акаунта не має `pageIdToken` |
 | Історія | `POST /youtubei/v1/browse` з `browseId=FEhistory` | TVHTML5-контекст + Bearer; відповідь — `tileRenderer`, зокрема Shorts через `reelWatchEndpoint` |
 | Підписки | `POST /youtubei/v1/browse` з `browseId=FEsubscriptions` | стрічка останніх відео, а не список каналів |
@@ -75,7 +75,7 @@
 
 - Підтримка Android API 24+ (compileSdk/targetSdk 34).
 - UI на Jetpack Compose (Material 3).
-- Тестованість: JUnit4 + MockK + kotlinx‑coroutines‑test (133 JVM unit‑тести: репозиторії, OAuth/InnerTube, мапінги налаштувань/історії, 12 ViewModel‑класів, форматери) + 4 інструментальні тести Room (міграції та DAO `watch_history`) на реальному пристрої.
+- Тестованість: JUnit4 + MockK + kotlinx‑coroutines‑test (145 JVM unit‑тести: репозиторії, OAuth/InnerTube, мапінги налаштувань/історії, 12 ViewModel‑класів, форматери) + 4 інструментальні тести Room (міграції та DAO `watch_history`) на реальному пристрої.
 - Локальне збереження: Room v3 (міграції `1→2` додає `videos.channelId`, `2→3` — `videos.authorAvatarUrl` і таблицю `watch_history`), DataStore Preferences для позиції відтворення та налаштувань, `EncryptedSharedPreferences` (`androidx.security:security-crypto`) для OAuth-токенів, клієнтських даних і профілю; файл `account_tokens` виключений із backup.
 - Лінтинг: ktlint (плагін `org.jlleitschuh.gradle.ktlint`), `ktlintCheck` проходить.
 - CI/CD: GitHub Actions `.github/workflows/android.yml` (`assembleDebug`, `ktlintCheck`, `test`).
@@ -152,7 +152,7 @@ ui       Android library‑заглушка (порожня, зарезерво�
 4. **Коментарі**: показуються лише top‑level коментарі, без відповідей; лайки та відповіді не інтерактивні.
 5. **Обмеження інстансу**: на тестовому інстансі `description` і `formatStreams` у `/api/v1/videos/{id}` порожні. HLS-сегменти VOD там віддають **403** (варіантні плейлисти ведуть на YouTube-слайси `/govp/slices=…`), тоді як adaptive-доріжки (`videoplayback?…&range=`) — **206**; тому VOD грає через merged adaptive, а HLS використовується для live. На інших інстансах поведінка може відрізнятися.
 6. **Мертвий код**: кореневий `src/` та порожній модуль `ui`.
-7. **Тестування**: 136 JVM unit-тести + 4 інструментальні Room-тести (міграції/DAO) на TCL 6102H (Android 12); Compose/UI-тестів немає — перевірка екранів ручна.
+7. **Тестування**: 145 JVM unit-тести + 4 інструментальні Room-тести (міграції/DAO) на TCL 6102H (Android 12); Compose/UI-тестів немає — перевірка екранів ручна.
 8. **Акаунт**: вхід — read-only TV OAuth, тож застосунок не підписується, не ставить лайки й не видаляє нічого на YouTube. Google може будь-коли відкликати сесію — тоді екран показує банер «Сесія завершилася» й повторний вхід, а локальна історія лишається. Сповіщення — best-effort: TV-ендпоінт `FEnotifications` відповідає HTTP 400, тож екран показує «Немає нових сповіщень» замість помилки мережі, а Підписки — стрічка останніх відео, бо TV-ендпоінт не повертає список каналів.
 9. **OAuth-дані**: `clientId`/`clientSecret` витягуються з публічної TV-сторінки YouTube і кешуються в зашифрованому сховищі; це неофіційний шлях, і YouTube може його зламати без попередження. Файл токенів виключений із cloud backup.
 

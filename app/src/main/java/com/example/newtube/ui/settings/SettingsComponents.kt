@@ -29,13 +29,15 @@ fun SettingsRow(
     title: String,
     subtitle: String? = null,
     enabled: Boolean = true,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
 ) {
+    val clickModifier =
+        onClick?.let { handler -> Modifier.clickable(enabled = enabled, onClick = handler) } ?: Modifier
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickable(enabled = enabled, onClick = onClick)
+                .then(clickModifier)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Text(

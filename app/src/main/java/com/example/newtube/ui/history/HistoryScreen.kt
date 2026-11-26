@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,6 +38,7 @@ import com.example.newtube.R
 import com.example.newtube.model.RemoteVideo
 import com.example.newtube.model.WatchHistoryEntry
 import com.example.newtube.ui.common.EmptyScreen
+import com.example.newtube.ui.common.InlineBanner
 import com.example.newtube.ui.shell.DetailTopBar
 
 @Composable
@@ -50,21 +50,24 @@ fun HistoryScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         DetailTopBar(
-            title =
-                stringResource(
-                    if (state.remoteSource) R.string.history_remote_subtitle else R.string.history_title,
-                ),
+            title = stringResource(R.string.history_title),
+            subtitle =
+                if (state.remoteSource) {
+                    stringResource(R.string.history_remote_subtitle)
+                } else {
+                    null
+                },
             onBack = { navController.popBackStack() },
         )
         when {
             state.expired ->
-                HistoryBanner(
+                InlineBanner(
                     message = stringResource(R.string.session_expired),
                     action = stringResource(R.string.session_expired_action),
                     onAction = { navController.navigate("login") },
                 )
             state.error ->
-                HistoryBanner(
+                InlineBanner(
                     message = stringResource(R.string.login_error_network),
                     action = stringResource(R.string.retry),
                     onAction = viewModel::retry,
@@ -112,27 +115,6 @@ fun HistoryScreen(
                         )
                     }
                 }
-        }
-    }
-}
-
-@Composable
-private fun HistoryBanner(
-    message: String,
-    action: String,
-    onAction: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onAction) {
-            Text(action)
         }
     }
 }

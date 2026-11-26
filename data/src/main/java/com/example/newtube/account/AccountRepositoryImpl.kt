@@ -18,11 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.io.IOException
 
@@ -53,15 +49,16 @@ class AccountRepositoryImpl(
     override fun loginFlow(): Flow<LoginState> =
         flow {
             emit(LoginState.Requesting)
-            val resolvedCredentials =
-                credentialsOrNull()
-                    ?: run {
-                        emit(LoginState.Error(LoginError.NETWORK))
-                        return@flow
-                    }
+            if (credentialsOrNull() == null) {
+                emit(LoginState.Error(LoginError.UNAVAILABLE))
+                return@flow
+            }
             val code =
                 try {
-                    oauth.requestDeviceCode(resolvedCredentials, deviceId)
+                    withCredentials { credentials -> oauth.requestDeviceCode(credentials, deviceId) }
+                } catch (_: CredentialsUnavailableException) {
+                    emit(LoginState.Error(LoginError.UNAVAILABLE))
+                    return@flow
                 } catch (_: IOException) {
                     emit(LoginState.Error(LoginError.NETWORK))
                     return@flow
@@ -77,7 +74,10 @@ class AccountRepositoryImpl(
                 delay(intervalSeconds * 1_000L)
                 val poll =
                     try {
-                        oauth.pollToken(resolvedCredentials, code.deviceCode)
+                        withCredentials { credentials -> oauth.pollToken(credentials, code.deviceCode) }
+                    } catch (_: CredentialsUnavailableException) {
+                        emit(LoginState.Error(LoginError.UNAVAILABLE))
+                        return@flow
                     } catch (_: IOException) {
                         intervalSeconds = (intervalSeconds * 2).coerceAtMost(MAX_BACKOFF_SECONDS)
                         continue
@@ -141,7 +141,7 @@ class AccountRepositoryImpl(
     }
 
     override suspend fun signOut() {
-        store.clear()
+        clearSession()
         mutableState.value = AccountState.SignedOut
     }
 
@@ -213,15 +213,26 @@ class AccountRepositoryImpl(
                         return@withLock null
                     }
             try {
-                val tokens = oauth.refresh(credentials.get(), refreshToken)
+                val tokens = withCredentials { credentials -> oauth.refresh(credentials, refreshToken) }
                 storeTokens(tokens)
                 tokens.accessToken
             } catch (_: InvalidGrantException) {
-                store.clear()
+                clearSession()
                 mutableState.value = AccountState.SignedOut
                 null
             }
         }
+
+    /** Runs [block] with the scraped pair, re-scraping once if Google rejects it. */
+    private suspend fun <T> withCredentials(block: suspend (ClientCredentials) -> T): T {
+        val first = credentials.get()
+        return try {
+            block(first)
+        } catch (_: InvalidClientException) {
+            credentials.invalidate()
+            block(credentials.get())
+        }
+    }
 
     private suspend fun credentialsOrNull(): ClientCredentials? =
         try {
@@ -229,6 +240,18 @@ class AccountRepositoryImpl(
         } catch (_: IOException) {
             null
         }
+
+    /**
+     * Clears the session but keeps the stable device id and the cached client
+     * pair, so signing in again does not look like a new device and needs no
+     * fresh scrape.
+     */
+    private fun clearSession() {
+        store.remove(KEY_ACCESS_TOKEN)
+        store.remove(KEY_REFRESH_TOKEN)
+        store.remove(KEY_EXPIRES_AT)
+        store.remove(KEY_ACCOUNT_JSON)
+    }
 
     private suspend fun fetchAccount(accessToken: String): UserAccount =
         try {
@@ -254,18 +277,7 @@ class AccountRepositoryImpl(
     private fun mapHttp(code: Int): AccountResult<Nothing> =
         if (code in 500..599 || code == 429) AccountResult.Server else AccountResult.Network
 
-    private fun readAccount(): UserAccount? {
-        val raw = store.get(KEY_ACCOUNT_JSON) ?: return null
-        return runCatching {
-            val obj = Json.parseToJsonElement(raw.removePrefix("\uFEFF")).jsonObject
-            UserAccount(
-                name = obj["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                email = obj["email"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                avatarUrl = obj["avatarUrl"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                pageId = obj["pageId"]?.jsonPrimitive?.contentOrNull,
-            )
-        }.getOrNull()
-    }
+    private fun readAccount(): UserAccount? = parseStoredAccount(store.get(KEY_ACCOUNT_JSON))
 
     private fun writeAccount(account: UserAccount) {
         val json =
@@ -285,9 +297,9 @@ class AccountRepositoryImpl(
         const val NOTIFICATIONS_ID = "FEnotifications"
         const val REFRESH_SKEW_MS = 5 * 60 * 1_000L
         const val MAX_BACKOFF_SECONDS = 30
-        const val KEY_ACCESS_TOKEN = "access_token"
-        const val KEY_REFRESH_TOKEN = "refresh_token"
-        const val KEY_EXPIRES_AT = "expires_at"
-        const val KEY_ACCOUNT_JSON = "account_json"
+        const val KEY_ACCESS_TOKEN = AccountStoreKeys.ACCESS_TOKEN
+        const val KEY_REFRESH_TOKEN = AccountStoreKeys.REFRESH_TOKEN
+        const val KEY_EXPIRES_AT = AccountStoreKeys.EXPIRES_AT
+        const val KEY_ACCOUNT_JSON = AccountStoreKeys.ACCOUNT_JSON
     }
 }
