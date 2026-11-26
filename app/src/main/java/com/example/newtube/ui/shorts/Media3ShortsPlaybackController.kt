@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -47,6 +48,7 @@ internal fun PlaybackSource.shortSourceUrls(): List<String> =
 class Media3ShortsPlaybackController(
     context: Context,
     dataSourceFactory: DataSource.Factory,
+    private val onPlayerError: (videoId: String?, error: PlaybackException) -> Unit = { _, _ -> },
 ) {
     private val applicationContext = context.applicationContext
     private val looper = Looper.getMainLooper()
@@ -98,7 +100,22 @@ class Media3ShortsPlaybackController(
     /** Resolved feed in pager order, retained so the window follows the settled index. */
     private var feed: List<PlaybackSource> = emptyList()
     private var currentIndex = 0
+    private var currentVideoId: String? = null
     private val managedItems = mutableMapOf<MediaItem, Int>()
+
+    init {
+        // A Media3 PlaybackException (expired URL, 403, IO, MergingMediaSource
+        // child failure) otherwise leaves a silent stall; surface it in the
+        // same per-clip playbackErrors map used for source-resolution errors so
+        // the Shorts Retry overlay appears. Retry re-prepares through [play].
+        player.addListener(
+            object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    onPlayerError(currentVideoId, error)
+                }
+            },
+        )
+    }
 
     /**
      * Replaces the window sources. The controller keeps [feed] so [setCurrentIndex]
@@ -122,9 +139,17 @@ class Media3ShortsPlaybackController(
         }
     }
 
-    /** The only prepare path in Shorts; the pager never prepares the player itself. */
-    fun play(source: PlaybackSource) {
+    /**
+     * The only prepare path in Shorts; the pager never prepares the player itself.
+     *
+     * Always re-prepares, even when [source] is equals-identical to the current
+     * one: Retry on a Media3 error must re-invoke `setMediaSource` + `prepare`
+     * rather than rely on `PlaybackSource` equality. [videoId] tags player
+     * errors reported through [onPlayerError].
+     */
+    fun play(source: PlaybackSource, videoId: String? = null) {
         onApplicationLooper {
+            currentVideoId = videoId
             val item = source.mediaItem()
             // A Merged source registered with the manager keeps its audio track;
             // the fallback also goes through shortSourceUrls(), never video-only.
@@ -137,6 +162,7 @@ class Media3ShortsPlaybackController(
 
     fun stop() {
         onApplicationLooper {
+            currentVideoId = null
             player.stop()
             player.clearMediaItems()
         }

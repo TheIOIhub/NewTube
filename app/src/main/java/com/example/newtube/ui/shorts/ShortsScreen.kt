@@ -161,14 +161,21 @@ private fun ShortsPager(
     // from the same components and released only when Shorts leaves composition.
     val context = LocalContext.current
     val controller =
-        remember {
+        remember(viewModel) {
             val dataSourceFactory =
                 EntryPointAccessors
                     .fromApplication(
                         context.applicationContext,
                         PlaybackCacheEntryPoint::class.java,
                     ).cacheDataSourceFactory()
-            Media3ShortsPlaybackController(context, dataSourceFactory)
+            Media3ShortsPlaybackController(
+                context,
+                dataSourceFactory,
+                // Surface Media3 PlaybackException into per-clip Retry (I1/§7.7).
+                onPlayerError = { id, error ->
+                    viewModel.reportPlayerError(id, error.message ?: error.errorCodeName)
+                },
+            )
         }
     DisposableEffect(Unit) {
         onDispose { controller.release() }
@@ -208,9 +215,23 @@ private fun ShortsPager(
     }
 
     // A single prepare path: play only when the active clip's source is ready.
-    val activeSource = sources[videos.getOrNull(pagerState.currentPage)?.id]
-    LaunchedEffect(pagerState.currentPage, activeSource) {
-        if (activeSource != null) controller.play(activeSource) else controller.stop()
+    // retryNonce is part of the key so Retry re-prepares through the controller
+    // even when the re-resolved PlaybackSource is equals-identical (I1/§7.7).
+    val activeVideo = videos.getOrNull(pagerState.currentPage)
+    val activeSource = sources[activeVideo?.id]
+    val retryNonce by viewModel.retryNonce.collectAsState()
+    LaunchedEffect(pagerState.currentPage, activeSource, retryNonce) {
+        if (activeSource != null) {
+            controller.play(activeSource, activeVideo?.id)
+        } else {
+            controller.stop()
+        }
+    }
+
+    // Spec §7.3 / M1: current clip gone after refresh -> pager goes to head.
+    val scrollToHead by viewModel.scrollToHead.collectAsState()
+    LaunchedEffect(scrollToHead) {
+        if (scrollToHead > 0) pagerState.scrollToPage(0)
     }
 
     // History starts on the settled page: currentPage changes mid-swipe and
@@ -243,7 +264,7 @@ private fun ShortsPager(
                         navController.navigate("channel/${video.channelId}")
                     }
                 },
-                onRetry = { viewModel.ensurePlayback(video.id, force = true) },
+                onRetry = { viewModel.retryPlayback(video.id) },
             )
         }
 

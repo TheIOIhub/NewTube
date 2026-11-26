@@ -46,13 +46,14 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
-import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.newtube.R
+import com.example.newtube.di.PlaybackCacheEntryPoint
 import com.example.newtube.model.PlaybackSource
+import dagger.hilt.android.EntryPointAccessors
 
 /**
  * ExoPlayer surface with the app's controls: play/pause and seeking come from
@@ -89,6 +90,17 @@ fun VideoPlayer(
     var playbackError by remember { mutableStateOf<String?>(null) }
 
     val trackSelector = remember { DefaultTrackSelector(context) }
+    // Route Watch's media source through the SAME singleton cached
+    // CacheDataSource.Factory as Shorts (spec G4 / plan Task 6; M4). The cache
+    // itself is shared; this only reuses it, Shorts behavior is untouched.
+    val cachedDataSourceFactory =
+        remember(context) {
+            EntryPointAccessors
+                .fromApplication(
+                    context.applicationContext,
+                    PlaybackCacheEntryPoint::class.java,
+                ).cacheDataSourceFactory()
+        }
     // The watch screen owns its player; Shorts passes a holder so the same
     // instance survives page changes and no per-page player is created.
     val ownedPlayer =
@@ -100,7 +112,7 @@ fun VideoPlayer(
                     .build()
                     .apply {
                         repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                        setMediaSource(playback.toMediaSource(context, DefaultDataSource.Factory(context)))
+                        setMediaSource(playback.toMediaSource(context, cachedDataSourceFactory))
                         playWhenReady = true
                         prepare()
                     }

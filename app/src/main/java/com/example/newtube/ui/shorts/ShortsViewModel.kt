@@ -79,6 +79,24 @@ class ShortsViewModel @Inject constructor(
     private val _playbackErrors = MutableStateFlow<Map<String, String>>(emptyMap())
     val playbackErrors: StateFlow<Map<String, String>> = _playbackErrors
 
+    /**
+     * Monotonic token included in the pager's prepare key so Retry re-prepares
+     * through the controller even when the re-resolved [PlaybackSource] is
+     * equals-identical (a Media3 `PlaybackSource` equality key alone would not
+     * re-invoke prepare). See spec §7.7.
+     */
+    private val _retryNonce = MutableStateFlow(0)
+    val retryNonce: StateFlow<Int> = _retryNonce
+
+    /**
+     * Explicit scroll-to-head signal (spec §7.3): after a refresh, when the
+     * currently active clip is no longer in the feed, the pager must go to page
+     * 0 rather than silently keep its numeric index. Counter so repeated
+     * triggers re-emit.
+     */
+    private val _scrollToHead = MutableStateFlow(0)
+    val scrollToHead: StateFlow<Int> = _scrollToHead
+
     private val requestedSources = mutableSetOf<String>()
     private val prefetchSemaphore = Semaphore(2)
     private var nextPage = 1
@@ -94,6 +112,14 @@ class ShortsViewModel @Inject constructor(
 
     /** Active clip, used to restore the pager index after a background refresh. */
     private var currentVideoId: String? = null
+
+    /**
+     * Pages appended by [loadMore] (and persisted via `appendFeed`), keyed by id.
+     * Kept so a background [reload]'s `replaceFeed` re-applies them instead of
+     * wiping appended pages before the next revalidate (spec §7.5). Metadata
+     * only; never signed stream URLs.
+     */
+    private val appended = linkedMapOf<String, Video>()
 
     init {
         reload()
@@ -184,14 +210,30 @@ class ShortsViewModel @Inject constructor(
                             _requestedStartId.value = null
                         }
                     }
-                    shortsCache.replaceFeed(result)
-                    _uiState.value = UiState.Success(result)
+                    // Ordering (spec §7.5, I2): `result` is the freshly
+                    // revalidated first page; pages appended by loadMore() are
+                    // NOT wiped — replaceFeed is given first page + appended,
+                    // and appendFeed (in loadMore) is never followed by a
+                    // replaceFeed that would drop them. Cached feed was read
+                    // before any write above. `loading` serializes reload vs
+                    // loadMore so appends can't interleave with a refresh.
+                    val resultIds = result.map { it.id }.toSet()
+                    val appendedKept = appended.values.filter { it.id !in resultIds }
+                    val finalList = result + appendedKept
+                    shortsCache.replaceFeed(finalList)
+                    _uiState.value = UiState.Success(finalList)
                     val currentId = currentVideoId
                     // A pending deep link wins: it was asked for explicitly and
                     // must not be replaced by the refresh's index restoration.
                     if (currentId != null && _requestedStartId.value == null) {
                         _requestedStartId.value =
                             currentId.takeIf { id -> result.any { it.id == id } }
+                    }
+                    // Spec §7.3 / M1: current clip gone after refresh -> go to
+                    // head (page 0), not silently keep the numeric index.
+                    // Checked against the revalidated `result` (not appended).
+                    if (currentId != null && currentId !in resultIds) {
+                        _scrollToHead.value += 1
                     }
                 }
             } catch (e: Exception) {
@@ -231,8 +273,20 @@ class ShortsViewModel @Inject constructor(
                     if (collected.isNotEmpty()) break
                 }
                 if (collected.isNotEmpty()) {
+                    // "only-new" items: not already shown, de-duplicated. Both
+                    // the on-screen list and the Room cache get exactly these;
+                    // appendFeed is a no-op on empty (handled in the repo) and
+                    // continues after the current maximum position (spec §7.5).
+                    val onlyNew =
+                        collected
+                            .filter { it.id !in currentIds }
+                            .distinctBy { it.id }
+                    if (onlyNew.isEmpty()) return@launch
                     _uiState.value =
-                        UiState.Success((current.data + collected).distinctBy { it.id })
+                        UiState.Success((current.data + onlyNew).distinctBy { it.id })
+                    // Persist appended pages; do NOT replaceFeed afterwards.
+                    for (video in onlyNew) appended[video.id] = video
+                    shortsCache.appendFeed(onlyNew)
                 }
             } catch (e: Exception) {
                 // Keep the shorts that are already on screen; the next swipe retries.
@@ -255,9 +309,41 @@ class ShortsViewModel @Inject constructor(
                 resolveSource(videoId)
             } catch (e: Exception) {
                 requestedSources -= videoId
+                // Drop any stale resolved source: on failure `_playbackSources`
+                // must not keep a previous (possibly expired) source that would
+                // re-trigger prepare with the same value (spec §7.7).
+                _playbackSources.value = _playbackSources.value - videoId
                 _playbackErrors.value = _playbackErrors.value + (videoId to e.toUserMessage())
             }
         }
+    }
+
+    /**
+     * Retry after a Media3 `PlaybackException` or a source-resolution failure
+     * (spec §7.7). Clears the per-clip error, drops any requested marker,
+     * bumps [retryNonce] so the pager re-prepares through the controller even
+     * when the re-resolved [PlaybackSource] is equals-identical, and re-resolves
+     * a fresh source. Stale `_playbackSources[id]` is removed on resolve
+     * failure inside [ensurePlayback]. One prepare path is preserved.
+     */
+    fun retryPlayback(videoId: String) {
+        _playbackErrors.value = _playbackErrors.value - videoId
+        requestedSources -= videoId
+        _retryNonce.value += 1
+        ensurePlayback(videoId, force = true)
+    }
+
+    /**
+     * Reports a Media3 `PlaybackException` from the active clip into the same
+     * per-clip [playbackErrors] map as source-resolution failures so the Shorts
+     * Retry overlay surfaces it (regression guard vs pre-Task9
+     * `VideoPlayer.onPlayerError`; spec §7.7). [videoId] may be null; falls
+     * back to the active clip. Never fabricates success.
+     */
+    fun reportPlayerError(videoId: String?, message: String?) {
+        val id = videoId ?: currentVideoId ?: return
+        val text = message?.takeIf { it.isNotBlank() } ?: PLAYBACK_ERROR_MESSAGE
+        _playbackErrors.value = _playbackErrors.value + (id to text)
     }
 
     /**
@@ -284,6 +370,9 @@ class ShortsViewModel @Inject constructor(
                         // longer calls ensurePlayback), and let the next page
                         // event or an explicit Retry try again.
                         requestedSources -= id
+                        // Drop any stale resolved source on resolve failure
+                        // (spec §7.7); a successful re-resolve re-adds it.
+                        _playbackSources.value = _playbackSources.value - id
                         _playbackErrors.value =
                             _playbackErrors.value + (id to e.toUserMessage())
                     }
@@ -325,6 +414,7 @@ class ShortsViewModel @Inject constructor(
         const val MIN_SHORTS = 10
         const val MAX_PAGE_ATTEMPTS = 3
         const val NO_SHORTS_MESSAGE = "No shorts available right now"
+        const val PLAYBACK_ERROR_MESSAGE = "Playback failed"
         const val SHORTS_HISTORY_DELAY_MS = 3_000L
         const val PAGING_STOP_TIMEOUT_MS = 5_000L
         val PAGING_CONFIG =

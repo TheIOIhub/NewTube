@@ -625,6 +625,192 @@ class ShortsViewModelTest {
             assertNull(viewModel.playbackErrors.value["v4"])
         }
 
+    @Test
+    fun `loadMorePersistsAppendedFeed`() =
+        runTest {
+            val initial = (1..11).map { video("$it") }
+            coEvery { repository.getShorts(1) } returns initial.take(4)
+            coEvery { repository.getShorts(2) } returns initial.drop(4).take(4)
+            coEvery { repository.getShorts(3) } returns initial.drop(8)
+            // reload() stops after 3 pages / >= 10 clips, so loadMore starts at page 4
+            coEvery { repository.getShorts(4) } returns listOf(initial[0]) // duplicate only
+            coEvery { repository.getShorts(5) } returns listOf(video("12"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.loadMore()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val onlyNew = listOf(video("12"))
+            // Persisted to the cache; NOT a no-op and NOT a replaceFeed wipe.
+            coVerify { shortsCache.appendFeed(onlyNew) }
+            coVerify(exactly = 0) { shortsCache.replaceFeed(onlyNew) }
+        }
+
+    @Test
+    fun `loadMorePersistsNoAppendedFeedWhenNothingNew`() =
+        runTest {
+            val initial = (1..10).map { video("$it") }
+            coEvery { repository.getShorts(1) } returns initial
+            // reload() reaches MIN_SHORTS on page 1, so loadMore starts at page 2
+            coEvery { repository.getShorts(2) } returns listOf(initial.first()) // duplicate only
+            coEvery { repository.getShorts(3) } returns listOf(initial.first())
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            val nextPageBefore = viewModel.uiState.value
+            viewModel.loadMore()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // no only-new items -> appendFeed not called with content; repo no-ops on empty
+            coVerify(exactly = 0) { shortsCache.appendFeed(match { it.isNotEmpty() }) }
+            assertEquals(nextPageBefore, viewModel.uiState.value)
+        }
+
+    @Test
+    fun `playerErrorIsReportedAsPlaybackError`() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.reportPlayerError("v4", "HTTP 403")
+
+            assertEquals("HTTP 403", viewModel.playbackErrors.value["v4"])
+        }
+
+    @Test
+    fun `reportPlayerErrorFallsBackToActiveClip`() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.onPageSettled(feed[4])
+
+            viewModel.reportPlayerError(videoId = null, message = null)
+
+            assertEquals("Playback failed", viewModel.playbackErrors.value["v4"])
+        }
+
+    @Test
+    fun `reportPlayerErrorUsesBlankFallbackMessage`() =
+        runTest {
+            coEvery { repository.getShorts(1) } returns listOf(video("v0"))
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.reportPlayerError("v0", "   ")
+
+            assertEquals("Playback failed", viewModel.playbackErrors.value["v0"])
+        }
+
+    @Test
+    fun `retryPlaybackRequestsRePrepare`() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.onPageChanged(4)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val sourceBeforeRetry = viewModel.playbackSources.value["v4"]
+            assertNotNull(sourceBeforeRetry)
+            viewModel.reportPlayerError("v4", "boom")
+            val nonceBefore = viewModel.retryNonce.value
+
+            viewModel.retryPlayback("v4")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // error cleared; re-prepare token bumped (drives controller.play
+            // even though the re-resolved source is equals-identical); source
+            // restored; a fresh resolve was attempted. One prepare path intact.
+            assertNull(viewModel.playbackErrors.value["v4"])
+            assertEquals(nonceBefore + 1, viewModel.retryNonce.value)
+            assertNotNull(viewModel.playbackSources.value["v4"])
+            coVerify(atLeast = 1) { repository.getVideoDetails("v4", any()) }
+        }
+
+    @Test
+    fun `retryResolveFailureRemovesStaleSource`() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+            var v4Calls = 0
+            coEvery { repository.getVideoDetails("v4", any()) } coAnswers {
+                if (v4Calls++ == 0) details(video("v4")) else throw IOException("gone")
+            }
+            coEvery { repository.getVideoDetails(match { it != "v4" }, any()) } returns details(video("other"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.onPageChanged(4)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertNotNull(viewModel.playbackSources.value["v4"])
+
+            viewModel.retryPlayback("v4")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // stale `_playbackSources[v4]` removed on resolve failure; error shown
+            assertNull(viewModel.playbackSources.value["v4"])
+            assertNotNull(viewModel.playbackErrors.value["v4"])
+        }
+
+    @Test
+    fun `scrollToHeadWhenCurrentClipGoneAfterRefresh`() =
+        runTest {
+            val a = video("a")
+            val b = video("b")
+            val c = video("c")
+            every { shortsCache.observeFeed() } returns flowOf(listOf(a, b, c))
+            coEvery { repository.getShorts(1) } returns listOf(video("x"), video("y"))
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            val before = viewModel.scrollToHead.value
+            viewModel.onPageSettled(b)
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // current clip no longer in the refreshed feed -> explicit go-to-head
+            assertTrue(viewModel.scrollToHead.value > before)
+            assertNull(viewModel.requestedStartId.value)
+        }
+
+    @Test
+    fun `scrollToHeadNotEmittedWhenCurrentClipSurvives`() =
+        runTest {
+            val a = video("a")
+            val b = video("b")
+            val c = video("c")
+            every { shortsCache.observeFeed() } returns flowOf(listOf(a, b, c))
+            coEvery { repository.getShorts(1) } returns listOf(video("x"), b, video("y"))
+            coEvery { repository.getShorts(2) } returns emptyList()
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+            val before = viewModel.scrollToHead.value
+            viewModel.onPageSettled(b)
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(before, viewModel.scrollToHead.value)
+            assertEquals("b", viewModel.requestedStartId.value)
+        }
+
     private fun details(video: Video) =
         VideoDetails(
             video = video,

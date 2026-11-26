@@ -108,14 +108,14 @@ Tasks 59–68 were executed from [`docs/superpowers/plans/2026-11-20-google-acco
 Executed from [`docs/superpowers/plans/2026-11-26-video-shorts-performance.md`](docs/superpowers/plans/2026-11-26-video-shorts-performance.md); rulings and per-task notes in `.superpowers/sdd/2026-11-26-video-shorts-performance/progress.md`. Player stack: **Media3 1.4.1** (not ExoPlayer 2.19, not Media3 1.9). Cache APIs come from `media3-datasource:1.4.1` (+ explicit `media3-common` / `media3-database`); `media3-datasource-cache` does not exist at 1.4.1.
 
 - [x] ✅ Room v4 `shorts_feed` + DataStore `known_channels`; cache-first Shorts feed with stale-while-revalidate and a refresh indicator — metadata only, never signed stream URLs.
-- [x] ✅ Bounded source prefetch and Media3 **256 MiB LRU** media disk cache; preload memory cap **96 MiB**; buffer durations 1500/5000/1000/1500 ms (nominal min 1000 is clamped because ExoPlayer forbids `min < afterRebuffer`).
+- [x] ✅ Bounded source prefetch and Media3 **256 MiB LRU** media disk cache; preload memory cap **96 MiB**; buffer durations `min/max/playback/afterRebuffer = 1500/5000/1000/1500` ms (nominal min 1000 is clamped to 1500 because ExoPlayer forbids `min < afterRebuffer`).
 - [x] ✅ One reused player for the Shorts pager, then Media3 1.4.1 `DefaultPreloadManager` with a radius-2 sliding window; Merged audio (both video and audio URLs) survives into preload.
 - [x] ✅ Thumbnail preloading through the shared Coil `ImageLoader`.
 - [x] ✅ Paging 3 `RemoteMediator` implemented and tested but **dormant**: the screen still consumes `UiState<List<Video>>` and manual `loadMore()`. Capability for a later UI switch only — no user-visible paging benefit in this release.
 - [x] ✅ Home Shorts shelf's separate `#shorts` search explicitly out of scope (landscape results would pollute the vertical feed cache).
 - [x] ✅ **Phase 1 device QA (P7WKDESW5PKZONVK)**: repeat entry showed the feed immediately with zero discovery requests; ~4 swipes produced one `Preparing` log per landed clip, no playback errors/ANR.
-- [ ] **Phase 2 device QA (Media3 preload + Merged audio audibility) — NOT yet run**; controller's next step.
-- [x] ✅ Full verification: `./gradlew.bat test ktlintCheck assembleDebug --no-daemon` — 390 JVM tests, 0 failures; ktlint clean; debug APK built.
+- [x] ✅ **Phase 2 device QA (Media3 preload + 15-swipe stress)**: 15 consecutive swipes, 0 playback errors/crashes, ~4 MB PSS growth. **Merged-audio audibility was NOT separately verified by ear**; only that both Merged URLs (video + audio) are registered for preload.
+- [x] ✅ Full verification: `./gradlew.bat test ktlintCheck assembleDebug --no-daemon` — ktlint clean; debug APK built; **390 JVM + 5 instrumented** tests, 0 failures. AND `./gradlew.bat :data:connectedAndroidTest --no-daemon` — **5/5 instrumented PASS** on device.
 
 > All tasks will be tracked in this markdown and updated as they complete.
 

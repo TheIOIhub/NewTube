@@ -26,7 +26,7 @@
 
 ### Not implemented yet
 
-Read‑through/offline caching outside the Shorts feed (Home, Search, Channel, History), runtime instance switch, subtitles, live/DVR handling, comment replies, UI tests and the release signing pipeline. Shorts metadata caching, media disk caching and preloading are implemented; Phase 2 device QA (Media3 preload + Merged audio audibility) is still pending. Account features are read-only: NewTube never subscribes, likes or deletes anything on YouTube. Full list: [`TASKS.md`](TASKS.md).
+Read‑through/offline caching outside the Shorts feed (Home, Search, Channel, History), runtime instance switch, subtitles, live/DVR handling, comment replies, UI tests and the release signing pipeline. Shorts metadata caching, media disk caching and preloading are implemented; Phase 2 device QA (Media3 preload + 15-swipe stress: 0 playback errors/crashes, ~4 MB PSS growth) passed, but Merged-audio audibility was NOT separately verified by ear. Account features are read-only: NewTube never subscribes, likes or deletes anything on YouTube. Full list: [`TASKS.md`](TASKS.md).
 
 ## Requirements
 
