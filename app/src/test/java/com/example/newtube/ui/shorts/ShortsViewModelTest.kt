@@ -30,6 +30,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -512,6 +513,116 @@ class ShortsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("deep", viewModel.requestedStartId.value)
+        }
+
+    @Test
+    fun failedDeepLinkFetchDoesNotBlockFutureRefresh() =
+        runTest {
+            val cached = listOf(video("v0"), video("v1"))
+            var shortsCalls = 0
+            every { shortsCache.observeFeed() } returns flowOf(cached)
+            coEvery { repository.getShorts(1) } coAnswers {
+                if (shortsCalls++ == 0) cached else listOf(video("x0"), video("v0"))
+            }
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoById("missing") } throws IOException("gone")
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.startFrom("missing")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertNull(viewModel.requestedStartId.value)
+
+            viewModel.onPageSettled(video("v0"))
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("v0", viewModel.requestedStartId.value)
+        }
+
+    @Test
+    fun deepLinkUnresolvableDuringRefreshDoesNotBlockFutureRefresh() =
+        runTest {
+            val firstPage = CompletableDeferred<List<Video>>()
+            var shortsCalls = 0
+            every { shortsCache.observeFeed() } returns flowOf(emptyList())
+            coEvery { repository.getShorts(1) } coAnswers {
+                if (shortsCalls++ == 0) firstPage.await() else listOf(video("f0"), video("v0"))
+            }
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoById("deep") } throws IOException("gone")
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            viewModel.startFrom("deep") // feed is still Loading: no prepend job is launched
+            firstPage.complete(listOf(video("v0")))
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertNull(viewModel.requestedStartId.value)
+
+            viewModel.onPageSettled(video("v0"))
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("v0", viewModel.requestedStartId.value)
+        }
+
+    @Test
+    fun prefetchFailureIsVisibleAndRetryable() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+            var v4Calls = 0
+            coEvery { repository.getVideoDetails("v4", any()) } coAnswers {
+                if (v4Calls++ == 0) throw IOException("boom") else details(video("v4"))
+            }
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageChanged(4)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.playbackSources.value["v4"])
+            assertNotNull(viewModel.playbackErrors.value["v4"])
+            assertEquals(setOf("v3", "v5", "v6"), viewModel.playbackSources.value.keys)
+
+            viewModel.ensurePlayback("v4", force = true)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(details(video("v4")).playback, viewModel.playbackSources.value["v4"])
+            assertNull(viewModel.playbackErrors.value["v4"])
+        }
+
+    @Test
+    fun successfulPageEventClearsStalePrefetchError() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+            var v4Calls = 0
+            coEvery { repository.getVideoDetails("v4", any()) } coAnswers {
+                if (v4Calls++ == 0) throw IOException("boom") else details(video("v4"))
+            }
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageChanged(4)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertNotNull(viewModel.playbackErrors.value["v4"])
+
+            // The next window still includes v4; its failed resolve was removed
+            // from requestedSources, so it is retried and the error must clear.
+            viewModel.onPageChanged(5)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNotNull(viewModel.playbackSources.value["v4"])
+            assertNull(viewModel.playbackErrors.value["v4"])
         }
 
     private fun details(video: Video) =

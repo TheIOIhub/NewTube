@@ -96,7 +96,14 @@ class ShortsViewModel @Inject constructor(
         val id = _requestedStartId.value ?: return
         val current = _uiState.value as? UiState.Success ?: return
         if (current.data.any { it.id == id }) return
-        val requested = runCatching { repository.getVideoById(id) }.getOrNull() ?: return
+        val requested =
+            runCatching { repository.getVideoById(id) }.getOrNull()
+                ?: run {
+                    // An id we cannot fetch must not block refresh reconciliation
+                    // forever: the pager can never consume an absent clip.
+                    if (_requestedStartId.value == id) _requestedStartId.value = null
+                    return
+                }
         val latest = _uiState.value as? UiState.Success ?: return
         _uiState.value =
             UiState.Success(listOf(requested) + latest.data.filterNot { it.id == id })
@@ -136,8 +143,14 @@ class ShortsViewModel @Inject constructor(
                     var result = collected.distinctBy { it.id }
                     val requestedId = _requestedStartId.value
                     if (requestedId != null && result.none { it.id == requestedId }) {
-                        runCatching { repository.getVideoById(requestedId) }.getOrNull()?.let {
-                            result = listOf(it) + result
+                        val requested =
+                            runCatching { repository.getVideoById(requestedId) }.getOrNull()
+                        if (requested != null) {
+                            result = listOf(requested) + result
+                        } else if (_requestedStartId.value == requestedId) {
+                            // Same as prependRequested: an unresolvable deep link
+                            // would otherwise suppress every future reconciliation.
+                            _requestedStartId.value = null
                         }
                     }
                     shortsCache.replaceFeed(result)
@@ -236,8 +249,12 @@ class ShortsViewModel @Inject constructor(
                     try {
                         resolveSource(id)
                     } catch (e: Exception) {
-                        // Let the next page event or an explicit Retry try again.
+                        // Surface the failure for the active clip (the pager no
+                        // longer calls ensurePlayback), and let the next page
+                        // event or an explicit Retry try again.
                         requestedSources -= id
+                        _playbackErrors.value =
+                            _playbackErrors.value + (id to e.toUserMessage())
                     }
                 }
             }
@@ -250,6 +267,8 @@ class ShortsViewModel @Inject constructor(
                 .getOrDefault(AppSettings.DEFAULT_QUALITY)
         val playback = repository.getVideoDetails(videoId, maxHeight).playback
         _playbackSources.value = _playbackSources.value + (videoId to playback)
+        // A successful re-resolve must not leave a stale Retry overlay behind.
+        _playbackErrors.value = _playbackErrors.value - videoId
     }
 
     /** Leaving the Shorts tab must not record a clip that was only passing by. */
