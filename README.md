@@ -11,7 +11,7 @@
 * **Channel view** – avatar, name, subscriber count, description and uploads paged by `continuation`; navigation uses the real `UC…` channel id.
 * **Watch screen** – player at the top (16:9), title, views/date, channel row, expandable description, comments button and related videos.
 * **Comments** – top-level comments with avatars, total count, pinned badge and `continuation` paging.
-* **Video player** – ExoPlayer: HLS manifest with progressive/merged-DASH fallbacks, quality menu (auto / ≤ Np), fullscreen, picture-in-picture and resume position.
+* **Video player** – Media3 1.4.1 ExoPlayer: HLS manifest with progressive/merged-DASH fallbacks, quality menu (auto / ≤ Np), fullscreen, picture-in-picture and resume position.
 * **Watch history** – every watch (a Shorts clip only after 3 seconds on the page) is upserted into a local Room table, newest first, with the channel avatar and relative watch time; tapping a row reopens the video.
 * **Google account (read-only)** – TV device-code OAuth (`google.com/device`) with the client credentials scraped from YouTube's TV page, tokens encrypted with `EncryptedSharedPreferences`, and access tokens refreshed silently. The Ви tab shows the signed-in avatar, name and email with a confirmed sign-out; Settings gains an Акаунт section.
 * **Subscriptions** – the signed-in account's recent uploads from the TV `FEsubscriptions` endpoint, rendered as a two-column grid with continuation paging; YouTube TV returns a video feed rather than a channel list.
@@ -19,13 +19,14 @@
 * **Notifications** – best-effort read of `FEnotifications`; rows open Watch, and an empty or unavailable feed shows "Немає нових сповіщень".
 * **Settings** – Вигляд (system/dark/light theme, applied immediately and kept across restarts), Акаунт (Google sign-in / sign-out), Історія (record-watch switch, YouTube history switch once signed in, confirmed clear that also drops resume positions), Відтворення (maximum quality 480p/720p/1080p, default 720p) and Про застосунок.
 * **Theme** – dark by default when the system is dark, full light palette, purple brand accent, matching system bars and XML splash colours.
-* **Room caching** – fetched videos and channels are persisted (Room v3: `channelId` and `authorAvatarUrl` on videos, plus the `watch_history` table and `2→3` migration).
-* **DataStore** – per-video playback position and the settings above.
+* **Room caching** – fetched videos and channels are persisted (Room v4: `channelId` and `authorAvatarUrl` on videos, `watch_history`, plus the Shorts feed table `shorts_feed` and `2→3→4` migrations).
+* **Shorts caching & preloading** – cache-first Shorts feed from Room v4 `shorts_feed` + DataStore `known_channels` (stale-while-revalidate with a refresh indicator; metadata only, never signed stream URLs); bounded source prefetch, 256 MiB LRU media disk cache, and one reused player driven by Media3 1.4.1 `DefaultPreloadManager` (radius-2 sliding window, Merged audio) with thumbnail preloading. A tested Paging 3 mediator is in place but dormant behind the existing list UI contract.
+* **DataStore** – per-video playback position, settings above and the Shorts `known_channels` ids.
 * **Material 3** UI, MVVM, Hilt DI, 3‑module Clean Architecture.
 
 ### Not implemented yet
 
-Read‑through/offline caching, runtime instance switch, subtitles, live/DVR handling, comment replies, UI tests and the release signing pipeline. Account features are read-only: NewTube never subscribes, likes or deletes anything on YouTube. Full list: [`TASKS.md`](TASKS.md).
+Read‑through/offline caching outside the Shorts feed (Home, Search, Channel, History), runtime instance switch, subtitles, live/DVR handling, comment replies, UI tests and the release signing pipeline. Shorts metadata caching, media disk caching and preloading are implemented; Phase 2 device QA (Media3 preload + Merged audio audibility) is still pending. Account features are read-only: NewTube never subscribes, likes or deletes anything on YouTube. Full list: [`TASKS.md`](TASKS.md).
 
 ## Requirements
 
@@ -82,7 +83,7 @@ ui/      Reserved Android library for shared Compose components (empty)
 
 1.1.0 – read-only Google account: TV device-code OAuth, encrypted tokens, account header and sign-out, the subscriptions recent-video feed, YouTube history and best-effort notifications.
 
-Next releases add offline caching, subtitles, playlists, a runtime Invidious switcher and the release pipeline (see [`TASKS.md`](TASKS.md)).
+Next releases add read‑through offline caching for the other lists, subtitles, playlists, a runtime Invidious switcher and the release pipeline (see [`TASKS.md`](TASKS.md)).
 
 ## Documentation
 
