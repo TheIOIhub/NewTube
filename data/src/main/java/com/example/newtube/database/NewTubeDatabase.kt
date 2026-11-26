@@ -6,7 +6,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [VideoEntity::class, ChannelEntity::class, WatchHistoryEntity::class],
+    entities = [VideoEntity::class, ChannelEntity::class, WatchHistoryEntity::class, ShortsFeedEntity::class],
     version = NewTubeDatabase.VERSION,
     exportSchema = true,
 )
@@ -17,8 +17,10 @@ abstract class NewTubeDatabase : RoomDatabase() {
 
     abstract fun watchHistoryDao(): WatchHistoryDao
 
+    abstract fun shortsFeedDao(): ShortsFeedDao
+
     companion object {
-        const val VERSION = 3
+        const val VERSION = 4
 
         /**
          * v2 adds `VideoEntity.channelId`, which is what the channel screen
@@ -57,6 +59,35 @@ abstract class NewTubeDatabase : RoomDatabase() {
                     database.execSQL(
                         "CREATE INDEX IF NOT EXISTS index_watch_history_watchedAt " +
                             "ON watch_history (watchedAt)",
+                    )
+                }
+            }
+
+        /**
+         * v4 adds the Shorts feed cache. Metadata only; signed stream
+         * URLs are never persisted.
+         */
+        val MIGRATION_3_4 =
+            object : Migration(3, 4) {
+                override fun migrate(database: SupportSQLiteDatabase) {
+                    database.execSQL(
+                        "CREATE TABLE IF NOT EXISTS shorts_feed (" +
+                            "videoId TEXT NOT NULL PRIMARY KEY, " +
+                            "title TEXT NOT NULL, " +
+                            "channelName TEXT NOT NULL, " +
+                            "channelId TEXT NOT NULL, " +
+                            "thumbnailUrl TEXT NOT NULL, " +
+                            "duration INTEGER NOT NULL, " +
+                            "views INTEGER NOT NULL, " +
+                            "uploadedAt TEXT NOT NULL, " +
+                            "isLive INTEGER NOT NULL, " +
+                            "authorAvatarUrl TEXT NOT NULL, " +
+                            "position INTEGER NOT NULL, " +
+                            "cachedAt INTEGER NOT NULL)",
+                    )
+                    database.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_shorts_feed_position " +
+                            "ON shorts_feed (position)",
                     )
                 }
             }
