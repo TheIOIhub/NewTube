@@ -66,6 +66,7 @@ import com.google.android.exoplayer2.upstream.DefaultDataSource
 @Composable
 fun VideoPlayer(
     playback: PlaybackSource,
+    holder: ExoPlayerHolder? = null,
     modifier: Modifier = Modifier,
     startPositionMs: Long = 0L,
     loop: Boolean = false,
@@ -88,24 +89,37 @@ fun VideoPlayer(
     var playbackError by remember { mutableStateOf<String?>(null) }
 
     val trackSelector = remember { DefaultTrackSelector(context) }
-    val exoPlayer =
-        remember(playback) {
-            ExoPlayer
-                .Builder(context)
-                .setTrackSelector(trackSelector)
-                .build()
-                .apply {
-                    repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                    setMediaSource(playback.toMediaSource(context, DefaultDataSource.Factory(context)))
-                    playWhenReady = true
-                    prepare()
-                }
+    // The watch screen owns its player; Shorts passes a holder so the same
+    // instance survives page changes and no per-page player is created.
+    val ownedPlayer =
+        remember(playback, holder) {
+            if (holder == null) {
+                ExoPlayer
+                    .Builder(context)
+                    .setTrackSelector(trackSelector)
+                    .build()
+                    .apply {
+                        repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                        setMediaSource(playback.toMediaSource(context, DefaultDataSource.Factory(context)))
+                        playWhenReady = true
+                        prepare()
+                    }
+            } else {
+                null
+            }
         }
+    val exoPlayer = holder?.player ?: ownedPlayer ?: error("No player available")
 
     val currentOnSavePosition by rememberUpdatedState(onSavePosition)
 
     LaunchedEffect(exoPlayer) {
         Log.i(TAG, "Preparing ${playback.describe()} for ${startPositionMs}ms")
+    }
+
+    if (holder != null) {
+        LaunchedEffect(playback) {
+            holder.prepare(playback)
+        }
     }
 
     LaunchedEffect(quality) {
@@ -160,7 +174,7 @@ fun VideoPlayer(
         onDispose {
             currentOnSavePosition(exoPlayer.currentPosition)
             exoPlayer.removeListener(listener)
-            exoPlayer.release()
+            if (holder == null) exoPlayer.release()
         }
     }
 
@@ -235,8 +249,12 @@ fun VideoPlayer(
                     onClick = {
                         Log.i(TAG, "Retrying playback after $errorCode")
                         playbackError = null
-                        exoPlayer.prepare()
-                        exoPlayer.play()
+                        if (holder != null) {
+                            holder.prepare(playback)
+                        } else {
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        }
                     },
                 ) {
                     Text("Retry", color = Color.White)

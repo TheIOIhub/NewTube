@@ -31,10 +31,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,14 +44,18 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import com.example.newtube.R
+import com.example.newtube.di.PlaybackCacheEntryPoint
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.ui.common.EmptyScreen
 import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.UiState
+import com.example.newtube.ui.video.ExoPlayerHolder
 import com.example.newtube.ui.video.VideoPlayer
+import com.example.newtube.ui.video.shortsLoadControl
 import com.google.android.exoplayer2.ui.AspectRatioFrameLayout
+import dagger.hilt.android.EntryPointAccessors
 
 @Composable
 fun ShortsScreen(
@@ -135,6 +141,23 @@ private fun ShortsPager(
 ) {
     val pagerState = rememberPagerState(pageCount = { videos.size })
 
+    // One player for the whole pager; it is released only when Shorts leaves
+    // composition, never between pages.
+    val context = LocalContext.current
+    val holder =
+        remember {
+            val dataSourceFactory =
+                EntryPointAccessors
+                    .fromApplication(
+                        context.applicationContext,
+                        PlaybackCacheEntryPoint::class.java,
+                    ).cacheDataSourceFactory()
+            ExoPlayerHolder(context, dataSourceFactory, shortsLoadControl())
+        }
+    DisposableEffect(Unit) {
+        onDispose { holder.release() }
+    }
+
     val requestedStartId by viewModel.requestedStartId.collectAsState()
     val targetIndex = if (requestedStartId == null) -1 else videos.indexOfFirst { it.id == requestedStartId }
 
@@ -146,8 +169,9 @@ private fun ShortsPager(
     }
 
     LaunchedEffect(pagerState.currentPage, videos.size) {
-        if (videos.getOrNull(pagerState.currentPage) == null) return@LaunchedEffect
+        val currentVideo = videos.getOrNull(pagerState.currentPage) ?: return@LaunchedEffect
         viewModel.onPageChanged(pagerState.currentPage)
+        sources[currentVideo.id]?.let(holder::prepare) ?: holder.stop()
         if (pagerState.currentPage >= videos.size - LOAD_MORE_THRESHOLD) {
             viewModel.loadMore()
         }
@@ -168,6 +192,7 @@ private fun ShortsPager(
             val video = videos[page]
             ShortPage(
                 video = video,
+                holder = holder,
                 source = sources[video.id],
                 playbackError = playbackErrors[video.id],
                 isActive = pagerState.currentPage == page,
@@ -201,6 +226,7 @@ private fun ShortsPager(
 @Composable
 private fun ShortPage(
     video: Video,
+    holder: ExoPlayerHolder,
     source: PlaybackSource?,
     playbackError: String?,
     isActive: Boolean,
@@ -221,6 +247,7 @@ private fun ShortPage(
         if (isActive && source != null) {
             VideoPlayer(
                 playback = source,
+                holder = holder,
                 modifier = Modifier.fillMaxSize(),
                 loop = true,
                 useController = false,
