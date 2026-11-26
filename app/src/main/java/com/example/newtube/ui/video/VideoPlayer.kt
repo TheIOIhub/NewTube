@@ -46,14 +46,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.example.newtube.R
 import com.example.newtube.model.PlaybackSource
 import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.PlaybackException
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.Tracks
-import com.google.android.exoplayer2.source.MediaSource
-import com.google.android.exoplayer2.source.MergingMediaSource
-import com.google.android.exoplayer2.source.ProgressiveMediaSource
-import com.google.android.exoplayer2.source.hls.HlsMediaSource
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
 import com.google.android.exoplayer2.ui.AspectRatioFrameLayout
 import com.google.android.exoplayer2.ui.PlayerView
@@ -101,7 +96,7 @@ fun VideoPlayer(
                 .build()
                 .apply {
                     repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                    setMediaSource(playback.toMediaSource(context))
+                    setMediaSource(playback.toMediaSource(context, DefaultDataSource.Factory(context)))
                     playWhenReady = true
                     prepare()
                 }
@@ -339,29 +334,6 @@ private fun PlaybackSource.describe(): String =
     }
 
 private fun String.hostOrUnknown(): String = runCatching { java.net.URI(this).host }.getOrDefault("unknown")
-
-private fun PlaybackSource.toMediaSource(context: Context): MediaSource {
-    val dataSourceFactory = DefaultDataSource.Factory(context)
-    return when (this) {
-        is PlaybackSource.Hls ->
-            HlsMediaSource
-                .Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(url))
-        is PlaybackSource.Progressive ->
-            ProgressiveMediaSource
-                .Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(url))
-        is PlaybackSource.Merged ->
-            MergingMediaSource(
-                ProgressiveMediaSource
-                    .Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(videoUrl)),
-                ProgressiveMediaSource
-                    .Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(audioUrl)),
-            )
-    }
-}
 
 private const val AUTO_QUALITY = 0
 private const val RESUME_TOLERANCE_MS = 5_000L

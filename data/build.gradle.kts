@@ -48,6 +48,10 @@ dependencies {
     kapt("com.squareup.moshi:moshi-kotlin-codegen:1.15.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // ExoPlayer (playback media cache)
+    implementation("com.google.android.exoplayer:exoplayer:2.19.0")
+
     implementation("androidx.room:room-runtime:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
