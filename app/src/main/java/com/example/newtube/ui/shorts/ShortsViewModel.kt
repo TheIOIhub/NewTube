@@ -2,6 +2,11 @@ package com.example.newtube.ui.shorts
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.ExperimentalPagingApi
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
@@ -15,13 +20,18 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import javax.inject.Inject
 
+@OptIn(ExperimentalPagingApi::class)
 @HiltViewModel
 class ShortsViewModel @Inject constructor(
     private val repository: VideoRepository,
@@ -31,6 +41,27 @@ class ShortsViewModel @Inject constructor(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<UiState<List<Video>>>(UiState.Loading)
     val uiState: StateFlow<UiState<List<Video>>> = _uiState
+
+    /**
+     * Paged view of the Room feed cache. The Pager is built on first collection
+     * so the list-based pager contract below remains the single active feed
+     * path; `cachedIn` keeps generated PagingData stable across re-collections.
+     * Room invalidates the source whenever the mediator writes a page.
+     */
+    val pagingData: StateFlow<PagingData<Video>> =
+        flow<PagingData<Video>> {
+            emitAll(
+                Pager(
+                    config = PAGING_CONFIG,
+                    remoteMediator = ShortsRemoteMediator(repository, shortsCache),
+                    pagingSourceFactory = { shortsCache.pagingSource() },
+                ).flow.cachedIn(viewModelScope),
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(PAGING_STOP_TIMEOUT_MS),
+            initialValue = PagingData.empty(),
+        )
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
@@ -295,5 +326,13 @@ class ShortsViewModel @Inject constructor(
         const val MAX_PAGE_ATTEMPTS = 3
         const val NO_SHORTS_MESSAGE = "No shorts available right now"
         const val SHORTS_HISTORY_DELAY_MS = 3_000L
+        const val PAGING_STOP_TIMEOUT_MS = 5_000L
+        val PAGING_CONFIG =
+            PagingConfig(
+                pageSize = 10,
+                prefetchDistance = 2,
+                initialLoadSize = 10,
+                maxSize = 40,
+            )
     }
 }

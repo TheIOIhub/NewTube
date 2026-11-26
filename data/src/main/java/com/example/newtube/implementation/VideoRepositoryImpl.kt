@@ -106,6 +106,11 @@ class VideoRepositoryImpl @Inject constructor(
     private fun pickQueries(pool: List<String>): List<FeedSource> =
         pool.shuffled().take(TOPIC_QUERY_COUNT).map(FeedSource::Search)
 
+    /**
+     * Paged loads for the Shorts mediator: every call advances the channel
+     * rotation, so consecutive `page` values yield a fresh batch without a
+     * separate continuation API.
+     */
     override suspend fun getShorts(page: Int): List<Video> =
         withContext(Dispatchers.IO) {
             // Invidious has no Shorts feed and its search ignores YouTube's

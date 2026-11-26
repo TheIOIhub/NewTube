@@ -60,6 +60,13 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    // Room 2.6 moved PagingSource support into a separate artifact.
+    implementation("androidx.room:room-paging:2.6.1")
+    // Room's generated LimitOffsetPagingSource needs Paging at compile time,
+    // including on kapt's processor classpath for return-type resolution.
+    implementation("androidx.paging:paging-runtime-ktx:3.2.1")
+    kapt("androidx.paging:paging-common:3.2.1")
+    kapt("androidx.paging:paging-runtime-ktx:3.2.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 

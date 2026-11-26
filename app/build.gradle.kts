@@ -75,6 +75,9 @@ dependencies {
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
 
+    // Paging 3 (Shorts feed mediator)
+    implementation("androidx.paging:paging-runtime-ktx:3.2.1")
+
     // Kotlinx Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 

@@ -3,6 +3,8 @@ package com.example.newtube.implementation
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
 import com.example.newtube.database.ShortsFeedDao
 import com.example.newtube.database.ShortsFeedEntity
 import com.example.newtube.model.Video
@@ -19,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 class ShortsCacheRepositoryImplTest {
     private val dao: ShortsFeedDao = mockk(relaxed = true)
@@ -76,6 +79,79 @@ class ShortsCacheRepositoryImplTest {
             assertEquals(listOf("a", "b"), feed.map { it.id })
             assertEquals(Video("a", "T", "C", "UC1", "thumb", 1L, 2L, "now", false, "avatar"), feed[0])
         }
+
+    @Test fun `appendFeed continues after the current maximum position`() =
+        runTest {
+            every { dao.observeAll() } returns
+                flowOf(listOf(entity("a", 0), entity("b", 1)))
+            val captured = slot<List<ShortsFeedEntity>>()
+            coJustRun { dao.insertAll(capture(captured)) }
+
+            repository.appendFeed(listOf(video("c"), video("d")))
+
+            assertEquals(listOf("c", "d"), captured.captured.map { it.videoId })
+            assertEquals(listOf(2, 3), captured.captured.map { it.position })
+        }
+
+    @Test fun `appendFeed ignores an empty page`() =
+        runTest {
+            repository.appendFeed(emptyList())
+            coVerify(exactly = 0) { dao.insertAll(any()) }
+        }
+
+    @Test fun `pagingSource maps cached rows to videos`() =
+        runTest {
+            val delegate =
+                object : PagingSource<Int, ShortsFeedEntity>() {
+                    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, ShortsFeedEntity> =
+                        if (params.key == 42) {
+                            LoadResult.Error(IOException("boom"))
+                        } else {
+                            LoadResult.Page(listOf(entity("a", 0)), null, 1)
+                        }
+
+                    override fun getRefreshKey(state: PagingState<Int, ShortsFeedEntity>): Int? = null
+                }
+            every { dao.pagingSource() } returns delegate
+
+            val page =
+                repository.pagingSource().load(
+                    PagingSource.LoadParams.Refresh(
+                        key = null,
+                        loadSize = 10,
+                        placeholdersEnabled = false,
+                    ),
+                )
+
+            assertTrue(page is PagingSource.LoadResult.Page<Int, Video>)
+            assertEquals("a", (page as PagingSource.LoadResult.Page<Int, Video>).data.single().id)
+
+            val error =
+                repository.pagingSource().load(
+                    PagingSource.LoadParams.Refresh(
+                        key = 42,
+                        loadSize = 10,
+                        placeholdersEnabled = false,
+                    ),
+                )
+            assertTrue(error is PagingSource.LoadResult.Error)
+        }
+
+    private fun entity(id: String, position: Int) =
+        ShortsFeedEntity(
+            videoId = id,
+            title = "Title $id",
+            channelName = "Channel",
+            channelId = "UC1",
+            thumbnailUrl = "https://example.com/$id.jpg",
+            duration = 30L,
+            views = 10L,
+            uploadedAt = "1 day ago",
+            isLive = false,
+            authorAvatarUrl = "https://example.com/avatar.jpg",
+            position = position,
+            cachedAt = 10L,
+        )
 
     private fun video(id: String) =
         Video(

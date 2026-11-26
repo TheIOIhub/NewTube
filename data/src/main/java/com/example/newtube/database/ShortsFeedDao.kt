@@ -8,7 +8,7 @@ import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface ShortsFeedDao {
+interface ShortsFeedDao : ShortsFeedPagingDao {
     @Query("SELECT * FROM shorts_feed ORDER BY position ASC")
     fun observeAll(): Flow<List<ShortsFeedEntity>>
 
