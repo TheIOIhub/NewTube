@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import javax.inject.Inject
 
 @HiltViewModel
@@ -47,6 +49,7 @@ class ShortsViewModel @Inject constructor(
     val playbackErrors: StateFlow<Map<String, String>> = _playbackErrors
 
     private val requestedSources = mutableSetOf<String>()
+    private val prefetchSemaphore = Semaphore(2)
     private var nextPage = 1
     private var loading = false
     private var reachedEnd = false
@@ -140,7 +143,9 @@ class ShortsViewModel @Inject constructor(
                     shortsCache.replaceFeed(result)
                     _uiState.value = UiState.Success(result)
                     val currentId = currentVideoId
-                    if (currentId != null) {
+                    // A pending deep link wins: it was asked for explicitly and
+                    // must not be replaced by the refresh's index restoration.
+                    if (currentId != null && _requestedStartId.value == null) {
                         _requestedStartId.value =
                             currentId.takeIf { id -> result.any { it.id == id } }
                     }
@@ -203,16 +208,48 @@ class ShortsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                val maxHeight =
-                    runCatching { settingsRepository.settings.first().defaultQuality }
-                        .getOrDefault(AppSettings.DEFAULT_QUALITY)
-                val playback = repository.getVideoDetails(videoId, maxHeight).playback
-                _playbackSources.value = _playbackSources.value + (videoId to playback)
+                resolveSource(videoId)
             } catch (e: Exception) {
                 requestedSources -= videoId
                 _playbackErrors.value = _playbackErrors.value + (videoId to e.toUserMessage())
             }
         }
+    }
+
+    /**
+     * Called on every pager page change. Resolves the active clip and its
+     * neighbours so a swipe does not have to wait for the source request, but
+     * caps each event at four ids and two concurrent resolutions.
+     */
+    fun onPageChanged(index: Int) {
+        val videos = (_uiState.value as? UiState.Success)?.data ?: return
+        // currentPage updates mid-swipe; track it so a refresh can restore the
+        // clip the user is moving to, not the one that last settled.
+        videos.getOrNull(index)?.let { currentVideoId = it.id }
+        val windowIds =
+            ((index - 1)..(index + 2)).mapNotNull { videos.getOrNull(it)?.id }
+        for (id in windowIds) {
+            if (id in requestedSources) continue
+            requestedSources += id
+            viewModelScope.launch {
+                prefetchSemaphore.withPermit {
+                    try {
+                        resolveSource(id)
+                    } catch (e: Exception) {
+                        // Let the next page event or an explicit Retry try again.
+                        requestedSources -= id
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun resolveSource(videoId: String) {
+        val maxHeight =
+            runCatching { settingsRepository.settings.first().defaultQuality }
+                .getOrDefault(AppSettings.DEFAULT_QUALITY)
+        val playback = repository.getVideoDetails(videoId, maxHeight).playback
+        _playbackSources.value = _playbackSources.value + (videoId to playback)
     }
 
     /** Leaving the Shorts tab must not record a clip that was only passing by. */

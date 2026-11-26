@@ -30,6 +30,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShortsViewModelTest {
@@ -398,6 +399,128 @@ class ShortsViewModelTest {
 
             coVerify(exactly = 0) { history.record(any()) }
         }
+
+    @Test
+    fun prefetchWindowIsBounded() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageChanged(4)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(setOf("v3", "v4", "v5", "v6"), viewModel.playbackSources.value.keys)
+            coVerify(exactly = 4) { repository.getVideoDetails(any(), any()) }
+        }
+
+    @Test
+    fun prefetchNeverExceedsTwoConcurrentRequests() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+            val gate = CompletableDeferred<Unit>()
+            val active = AtomicInteger(0)
+            val peak = AtomicInteger(0)
+            coEvery { repository.getVideoDetails(any(), any()) } coAnswers {
+                val current = active.incrementAndGet()
+                peak.updateAndGet { previous -> maxOf(previous, current) }
+                gate.await()
+                active.decrementAndGet()
+                details(video("resolved"))
+            }
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageChanged(4)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(2, peak.get())
+
+            gate.complete(Unit)
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+
+    @Test
+    fun repeatedPageChangeDoesNotRefetch() =
+        runTest {
+            val feed = (0..9).map { video("v$it") }
+            coEvery { repository.getShorts(1) } returns feed
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageChanged(4)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.ensurePlayback("v4")
+            viewModel.onPageChanged(4)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 4) { repository.getVideoDetails(any(), any()) }
+        }
+
+    @Test
+    fun pageChangeTracksActiveClipForRefresh() =
+        runTest {
+            val cached = (0..9).map { video("v$it") }
+            val fresh = (0..4).map { video("x$it") } + cached.drop(4)
+            var shortsCalls = 0
+            every { shortsCache.observeFeed() } returns flowOf(cached)
+            // Initial load shows v0..v9; the manual refresh rearranges the feed.
+            coEvery { repository.getShorts(1) } coAnswers {
+                if (shortsCalls++ == 0) cached else fresh
+            }
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onPageSettled(cached[0])
+            viewModel.onPageChanged(4)
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("v4", viewModel.requestedStartId.value)
+        }
+
+    @Test
+    fun refreshDoesNotOverwritePendingStartRequest() =
+        runTest {
+            val cached = listOf(video("v0"), video("v1"))
+            every { shortsCache.observeFeed() } returns flowOf(cached)
+            coEvery { repository.getShorts(1) } returns listOf(video("f0"), video("v1"))
+            coEvery { repository.getShorts(2) } returns emptyList()
+            coEvery { repository.getVideoById("deep") } returns video("deep")
+            coEvery { repository.getVideoDetails(any(), any()) } returns details(video("resolved"))
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.startFrom("deep")
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.onPageSettled(video("v1"))
+            viewModel.reload()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("deep", viewModel.requestedStartId.value)
+        }
+
+    private fun details(video: Video) =
+        VideoDetails(
+            video = video,
+            description = "",
+            related = emptyList(),
+            playback = PlaybackSource.Hls("https://example.com/${video.id}.m3u8"),
+        )
 
     private fun video(id: String) =
         Video(

@@ -146,8 +146,8 @@ private fun ShortsPager(
     }
 
     LaunchedEffect(pagerState.currentPage, videos.size) {
-        val video = videos.getOrNull(pagerState.currentPage) ?: return@LaunchedEffect
-        viewModel.ensurePlayback(video.id)
+        if (videos.getOrNull(pagerState.currentPage) == null) return@LaunchedEffect
+        viewModel.onPageChanged(pagerState.currentPage)
         if (pagerState.currentPage >= videos.size - LOAD_MORE_THRESHOLD) {
             viewModel.loadMore()
         }
