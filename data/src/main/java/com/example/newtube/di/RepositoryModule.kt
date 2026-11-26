@@ -28,6 +28,7 @@ abstract class RepositoryModule {
             service: InvidiousService,
             dao: VideoDao,
             channelDao: ChannelDao,
-        ): VideoRepository = VideoRepositoryImpl(service, dao, channelDao)
+            shortsCache: ShortsCacheRepository,
+        ): VideoRepository = VideoRepositoryImpl(service, dao, channelDao, shortsCache)
     }
 }
