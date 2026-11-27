@@ -49,8 +49,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.newtube.R
@@ -133,6 +135,7 @@ fun VideoPlayer(
                 ExoPlayer
                     .Builder(context)
                     .setTrackSelector(trackSelector)
+                    .setLoadControl(watchLoadControl())
                     .build()
                     .apply {
                         repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
@@ -511,6 +514,25 @@ private fun Context.findActivity(): Activity? {
     return null
 }
 
+/**
+ * Watch uses the same tuned buffering as Media3ShortsPlaybackController
+ * (1500/5000/1000/1500 ms, 96 MiB target) so the shared media cache serves
+ * both screens with identical buffer settings.
+ */
+private fun watchLoadControl(): DefaultLoadControl =
+    DefaultLoadControl
+        .Builder()
+        .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+        .setBufferDurationsMs(
+            // Media3 1.4.1 rejects minBufferMs < bufferForPlaybackAfterRebufferMs.
+            maxOf(1_000, 1_500),
+            5_000,
+            1_000,
+            1_500,
+        ).setPrioritizeTimeOverSizeThresholds(true)
+        .setTargetBufferBytes(WATCH_TARGET_BUFFER_BYTES)
+        .build()
+
 private fun PlaybackSource.describe(): String =
     when (this) {
         is PlaybackSource.Hls -> "hls source (host=${url.hostOrUnknown()})"
@@ -524,4 +546,5 @@ private fun String.hostOrUnknown(): String = runCatching { java.net.URI(this).ho
 
 private const val AUTO_QUALITY = 0
 private const val RESUME_TOLERANCE_MS = 5_000L
+private const val WATCH_TARGET_BUFFER_BYTES = 96 * 1024 * 1024
 private const val TAG = "VideoPlayer"
