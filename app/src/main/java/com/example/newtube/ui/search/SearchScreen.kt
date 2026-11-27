@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -37,6 +39,7 @@ import androidx.navigation.NavController
 import com.example.newtube.R
 import com.example.newtube.ui.common.EmptyScreen
 import com.example.newtube.ui.common.ErrorScreen
+import com.example.newtube.ui.common.InlineBanner
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.VideoCardSkeleton
@@ -50,6 +53,8 @@ fun SearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val sourceUnavailable by viewModel.sourceUnavailable.collectAsState()
     val suggestions by viewModel.suggestions.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
@@ -101,6 +106,17 @@ fun SearchScreen(
                     }
                 }
             }
+        }
+
+        if (isRefreshing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp))
+        }
+        if (sourceUnavailable && uiState is UiState.Success) {
+            InlineBanner(
+                message = stringResource(R.string.source_unavailable),
+                action = stringResource(R.string.retry),
+                onAction = viewModel::retry,
+            )
         }
 
         when (val state = uiState) {

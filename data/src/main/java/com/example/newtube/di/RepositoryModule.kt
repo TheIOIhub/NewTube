@@ -2,9 +2,11 @@ package com.example.newtube.di
 
 import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.VideoDao
+import com.example.newtube.implementation.FeedCacheRepository
+import com.example.newtube.implementation.FeedCacheRepositoryImpl
 import com.example.newtube.implementation.ShortsCacheRepositoryImpl
 import com.example.newtube.implementation.VideoRepositoryImpl
-import com.example.newtube.remote.InvidiousService
+import com.example.newtube.innertube.YouTubeContentClient
 import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
 import dagger.Binds
@@ -21,26 +23,32 @@ abstract class RepositoryModule {
     @Singleton
     abstract fun bindShortsCacheRepository(impl: ShortsCacheRepositoryImpl): ShortsCacheRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindFeedCacheRepository(impl: FeedCacheRepositoryImpl): FeedCacheRepository
+
     companion object {
         @Provides
         @Singleton
         fun provideVideoRepository(
-            service: InvidiousService,
+            contentClient: YouTubeContentClient,
             dao: VideoDao,
             channelDao: ChannelDao,
             shortsCache: ShortsCacheRepository,
             settingsRepository: com.example.newtube.repository.SettingsRepository,
             historyRepository: com.example.newtube.repository.HistoryRepository,
             accountRepository: com.example.newtube.repository.AccountRepository,
+            feedCache: FeedCacheRepository,
         ): VideoRepository =
             VideoRepositoryImpl(
-                service,
+                contentClient,
                 dao,
                 channelDao,
                 shortsCache,
                 settingsRepository,
                 historyRepository,
                 accountRepository,
+                feedCache,
             )
     }
 }

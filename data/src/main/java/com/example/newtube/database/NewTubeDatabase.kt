@@ -6,7 +6,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [VideoEntity::class, ChannelEntity::class, WatchHistoryEntity::class, ShortsFeedEntity::class],
+    entities = [VideoEntity::class, ChannelEntity::class, WatchHistoryEntity::class, ShortsFeedEntity::class, FeedCacheEntity::class],
     version = NewTubeDatabase.VERSION,
     exportSchema = true,
 )
@@ -19,12 +19,14 @@ abstract class NewTubeDatabase : RoomDatabase() {
 
     abstract fun shortsFeedDao(): ShortsFeedDao
 
+    abstract fun feedCacheDao(): FeedCacheDao
+
     companion object {
-        const val VERSION = 4
+        const val VERSION = 5
 
         /**
          * v2 adds `VideoEntity.channelId`, which is what the channel screen
-         * needs: Invidious only resolves channels by their `UC…` id.
+         * needs: channels are resolved by their `UC…` id.
          */
         val MIGRATION_1_2 =
             object : Migration(1, 2) {
@@ -88,6 +90,27 @@ abstract class NewTubeDatabase : RoomDatabase() {
                     database.execSQL(
                         "CREATE INDEX IF NOT EXISTS index_shorts_feed_position " +
                             "ON shorts_feed (position)",
+                    )
+                }
+            }
+
+        /**
+         * v5 adds the generic raw-JSON feed cache. Rows are replaced, never
+         * invalidated by a failing refresh, so stale feeds stay on screen.
+         */
+        val MIGRATION_4_5 =
+            object : Migration(4, 5) {
+                override fun migrate(database: SupportSQLiteDatabase) {
+                    database.execSQL(
+                        "CREATE TABLE IF NOT EXISTS `feed_cache` (" +
+                            "`key` TEXT NOT NULL, " +
+                            "`json` TEXT NOT NULL, " +
+                            "`cachedAt` INTEGER NOT NULL, " +
+                            "PRIMARY KEY(`key`))",
+                    )
+                    database.execSQL(
+                        "CREATE INDEX IF NOT EXISTS `index_feed_cache_cachedAt` " +
+                            "ON `feed_cache` (`cachedAt`)",
                     )
                 }
             }

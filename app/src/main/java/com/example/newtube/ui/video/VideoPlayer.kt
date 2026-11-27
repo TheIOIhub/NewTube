@@ -49,8 +49,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.newtube.R
@@ -133,6 +135,7 @@ fun VideoPlayer(
                 ExoPlayer
                     .Builder(context)
                     .setTrackSelector(trackSelector)
+                    .setLoadControl(watchLoadControl())
                     .build()
                     .apply {
                         repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
@@ -212,20 +215,20 @@ fun VideoPlayer(
                                 }
                             }.distinct()
                             .sortedDescending()
-                val options = tracks.audioOptions()
-                audioOptions = options
-                val key = selectedAudioKey
-                if (key != null) {
-                    options.firstOrNull { it.key == key }?.let { option ->
-                        trackSelector.setParameters(
-                            trackSelector
-                                .buildUponParameters()
-                                .setOverrideForType(
-                                    TrackSelectionOverride(option.group.mediaTrackGroup, option.index),
-                                ),
-                        )
+                    val options = tracks.audioOptions()
+                    audioOptions = options
+                    val key = selectedAudioKey
+                    if (key != null) {
+                        options.firstOrNull { it.key == key }?.let { option ->
+                            trackSelector.setParameters(
+                                trackSelector
+                                    .buildUponParameters()
+                                    .setOverrideForType(
+                                        TrackSelectionOverride(option.group.mediaTrackGroup, option.index),
+                                    ),
+                            )
+                        }
                     }
-                }
                 }
             }
         exoPlayer.addListener(listener)
@@ -280,224 +283,224 @@ fun VideoPlayer(
             canMinimize = canMinimize,
             onMinimize = onMinimize,
         ) {
-        AndroidView(
-            factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    player = exoPlayer
-                    this.useController = useController
-                    this.resizeMode = resizeMode
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-            update = { view -> view.resizeMode = resizeMode },
-        )
-
-        if (tapToTogglePlayback && !gesturesEnabled) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) {
-                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                        },
-            )
-        }
-
-        if (isBuffering && playbackError == null) {
-            CircularProgressIndicator(
-                color = Color.White,
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
-
-        val errorCode = playbackError
-        if (errorCode != null) {
-            Column(
-                modifier = Modifier.align(Alignment.Center).padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(text = "Playback failed ($errorCode)", color = Color.White)
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(
-                    onClick = {
-                        Log.i(TAG, "Retrying playback after $errorCode")
-                        playbackError = null
-                        if (holder != null) {
-                            holder.prepare(playback)
-                        } else {
-                            exoPlayer.prepare()
-                            exoPlayer.play()
-                        }
-                    },
-                ) {
-                    Text("Retry", color = Color.White)
-                }
-            }
-        }
-
-        val audioAlternatives = (playback as? PlaybackSource.Merged)?.audioAlternatives.orEmpty()
-        val showAudioButton =
-            audioButtonVisible(showAudioControl, audioOptions.size, audioAlternatives.size)
-
-        fun applyAudioOption(option: AudioTrackOption) {
-            selectedAudioKey = option.key
-            trackSelector.setParameters(
-                trackSelector
-                    .buildUponParameters()
-                    .setOverrideForType(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)),
-            )
-            audioMenuOpen = false
-        }
-
-        fun applyAudioAlternative(url: String) {
-            val merged = playback as? PlaybackSource.Merged ?: return
-            val savedPosition = exoPlayer.currentPosition
-            currentOnSavePosition(savedPosition)
-            exoPlayer.stop()
-            exoPlayer.setMediaSource(
-                merged.copy(audioUrl = url).toMediaSource(context, cachedDataSourceFactory),
-            )
-            exoPlayer.prepare()
-            exoPlayer.seekTo(savedPosition)
-            exoPlayer.playWhenReady = true
-            audioMenuOpen = false
-        }
-
-        Row(
-            modifier =
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (showAudioButton) {
-                Box {
-                    TextButton(onClick = { audioMenuOpen = true }) {
-                        Text("Аудіо", color = Color.White)
+            AndroidView(
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        player = exoPlayer
+                        this.useController = useController
+                        this.resizeMode = resizeMode
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                     }
-                    DropdownMenu(
-                        expanded = audioMenuOpen,
-                        onDismissRequest = { audioMenuOpen = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Авто") },
-                            onClick = {
-                                selectedAudioKey = null
-                                trackSelector.setParameters(
-                                    trackSelector
-                                        .buildUponParameters()
-                                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO),
-                                )
-                                audioMenuOpen = false
-                            },
-                        )
-                        audioOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option.label) },
-                                onClick = { applyAudioOption(option) },
-                            )
-                        }
-                        audioAlternatives.forEachIndexed { index, url ->
-                            DropdownMenuItem(
-                                text = { Text("Доріжка ${index + 1}") },
-                                onClick = { applyAudioAlternative(url) },
-                            )
-                        }
-                    }
-                }
-            }
-
-            TextButton(
-                onClick = {
-                    val next =
-                        when (resizeMode) {
-                            AppSettings.RESIZE_FIT -> AppSettings.RESIZE_FILL
-                            AppSettings.RESIZE_FILL -> AppSettings.RESIZE_ZOOM
-                            else -> AppSettings.RESIZE_FIT
-                        }
-                    onResizeModeChange(next)
                 },
-            ) {
-                Text(
-                    text =
-                        stringResource(
-                            when (resizeMode) {
-                                AppSettings.RESIZE_FILL -> R.string.resize_fill
-                                AppSettings.RESIZE_ZOOM -> R.string.resize_zoom
-                                else -> R.string.resize_fit
+                modifier = Modifier.fillMaxSize(),
+                update = { view -> view.resizeMode = resizeMode },
+            )
+
+            if (tapToTogglePlayback && !gesturesEnabled) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) {
+                                if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
                             },
-                        ),
                 )
             }
 
-            if (showQualityControl) {
-                Box {
+            if (isBuffering && playbackError == null) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+
+            val errorCode = playbackError
+            if (errorCode != null) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(text = "Playback failed ($errorCode)", color = Color.White)
+                    Spacer(modifier = Modifier.height(8.dp))
                     TextButton(
-                        onClick = { qualityMenuOpen = true },
-                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = Color.White),
+                        onClick = {
+                            Log.i(TAG, "Retrying playback after $errorCode")
+                            playbackError = null
+                            if (holder != null) {
+                                holder.prepare(playback)
+                            } else {
+                                exoPlayer.prepare()
+                                exoPlayer.play()
+                            }
+                        },
                     ) {
-                        Text(if (quality == AUTO_QUALITY) "Auto" else "${quality}p")
+                        Text("Retry", color = Color.White)
                     }
-                    DropdownMenu(
-                        expanded = qualityMenuOpen,
-                        onDismissRequest = { qualityMenuOpen = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Auto") },
-                            onClick = {
-                                quality = AUTO_QUALITY
-                                qualityMenuOpen = false
-                            },
-                        )
-                        (AppSettings.QUALITY_OPTIONS + availableHeights)
-                            .distinct()
-                            .sortedDescending()
-                            .forEach { height ->
+                }
+            }
+
+            val audioAlternatives = (playback as? PlaybackSource.Merged)?.audioAlternatives.orEmpty()
+            val showAudioButton =
+                audioButtonVisible(showAudioControl, audioOptions.size, audioAlternatives.size)
+
+            fun applyAudioOption(option: AudioTrackOption) {
+                selectedAudioKey = option.key
+                trackSelector.setParameters(
+                    trackSelector
+                        .buildUponParameters()
+                        .setOverrideForType(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)),
+                )
+                audioMenuOpen = false
+            }
+
+            fun applyAudioAlternative(url: String) {
+                val merged = playback as? PlaybackSource.Merged ?: return
+                val savedPosition = exoPlayer.currentPosition
+                currentOnSavePosition(savedPosition)
+                exoPlayer.stop()
+                exoPlayer.setMediaSource(
+                    merged.copy(audioUrl = url).toMediaSource(context, cachedDataSourceFactory),
+                )
+                exoPlayer.prepare()
+                exoPlayer.seekTo(savedPosition)
+                exoPlayer.playWhenReady = true
+                audioMenuOpen = false
+            }
+
+            Row(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showAudioButton) {
+                    Box {
+                        TextButton(onClick = { audioMenuOpen = true }) {
+                            Text("Аудіо", color = Color.White)
+                        }
+                        DropdownMenu(
+                            expanded = audioMenuOpen,
+                            onDismissRequest = { audioMenuOpen = false },
+                        ) {
                             DropdownMenuItem(
-                                text = { Text("$height" + "p") },
+                                text = { Text("Авто") },
                                 onClick = {
-                                    quality = height
+                                    selectedAudioKey = null
+                                    trackSelector.setParameters(
+                                        trackSelector
+                                            .buildUponParameters()
+                                            .clearOverridesOfType(C.TRACK_TYPE_AUDIO),
+                                    )
+                                    audioMenuOpen = false
+                                },
+                            )
+                            audioOptions.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.label) },
+                                    onClick = { applyAudioOption(option) },
+                                )
+                            }
+                            audioAlternatives.forEachIndexed { index, url ->
+                                DropdownMenuItem(
+                                    text = { Text("Доріжка ${index + 1}") },
+                                    onClick = { applyAudioAlternative(url) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                TextButton(
+                    onClick = {
+                        val next =
+                            when (resizeMode) {
+                                AppSettings.RESIZE_FIT -> AppSettings.RESIZE_FILL
+                                AppSettings.RESIZE_FILL -> AppSettings.RESIZE_ZOOM
+                                else -> AppSettings.RESIZE_FIT
+                            }
+                        onResizeModeChange(next)
+                    },
+                ) {
+                    Text(
+                        text =
+                            stringResource(
+                                when (resizeMode) {
+                                    AppSettings.RESIZE_FILL -> R.string.resize_fill
+                                    AppSettings.RESIZE_ZOOM -> R.string.resize_zoom
+                                    else -> R.string.resize_fit
+                                },
+                            ),
+                    )
+                }
+
+                if (showQualityControl) {
+                    Box {
+                        TextButton(
+                            onClick = { qualityMenuOpen = true },
+                            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = Color.White),
+                        ) {
+                            Text(if (quality == AUTO_QUALITY) "Auto" else "${quality}p")
+                        }
+                        DropdownMenu(
+                            expanded = qualityMenuOpen,
+                            onDismissRequest = { qualityMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Auto") },
+                                onClick = {
+                                    quality = AUTO_QUALITY
                                     qualityMenuOpen = false
                                 },
                             )
+                            (AppSettings.QUALITY_OPTIONS + availableHeights)
+                                .distinct()
+                                .sortedDescending()
+                                .forEach { height ->
+                                    DropdownMenuItem(
+                                        text = { Text("$height" + "p") },
+                                        onClick = {
+                                            quality = height
+                                            qualityMenuOpen = false
+                                        },
+                                    )
+                                }
                         }
                     }
                 }
-            }
 
-            if (showPipControl && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
-                IconButton(
-                    onClick = {
-                        runCatching {
-                            activity.enterPictureInPictureMode(PictureInPictureParams.Builder().build())
-                        }
-                    },
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_pip),
-                        contentDescription = "Picture in picture",
-                        tint = Color.White,
-                    )
+                if (showPipControl && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
+                    IconButton(
+                        onClick = {
+                            runCatching {
+                                activity.enterPictureInPictureMode(PictureInPictureParams.Builder().build())
+                            }
+                        },
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_pip),
+                            contentDescription = "Picture in picture",
+                            tint = Color.White,
+                        )
+                    }
+                }
+
+                if (showFullscreenControl) {
+                    IconButton(onClick = onToggleFullscreen) {
+                        Icon(
+                            painter =
+                                painterResource(
+                                    if (isFullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen,
+                                ),
+                            contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                            tint = Color.White,
+                        )
+                    }
                 }
             }
-
-            if (showFullscreenControl) {
-                IconButton(onClick = onToggleFullscreen) {
-                    Icon(
-                        painter =
-                            painterResource(
-                                if (isFullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen,
-                            ),
-                        contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
-                        tint = Color.White,
-                    )
-                }
-            }
-        }
         }
     }
 }
@@ -510,6 +513,25 @@ private fun Context.findActivity(): Activity? {
     }
     return null
 }
+
+/**
+ * Watch uses the same tuned buffering as Media3ShortsPlaybackController
+ * (1500/5000/1000/1500 ms, 96 MiB target) so the shared media cache serves
+ * both screens with identical buffer settings.
+ */
+private fun watchLoadControl(): DefaultLoadControl =
+    DefaultLoadControl
+        .Builder()
+        .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+        .setBufferDurationsMs(
+            // Media3 1.4.1 rejects minBufferMs < bufferForPlaybackAfterRebufferMs.
+            maxOf(1_000, 1_500),
+            5_000,
+            1_000,
+            1_500,
+        ).setPrioritizeTimeOverSizeThresholds(true)
+        .setTargetBufferBytes(WATCH_TARGET_BUFFER_BYTES)
+        .build()
 
 private fun PlaybackSource.describe(): String =
     when (this) {
@@ -524,4 +546,5 @@ private fun String.hostOrUnknown(): String = runCatching { java.net.URI(this).ho
 
 private const val AUTO_QUALITY = 0
 private const val RESUME_TOLERANCE_MS = 5_000L
+private const val WATCH_TARGET_BUFFER_BYTES = 96 * 1024 * 1024
 private const val TAG = "VideoPlayer"

@@ -1,0 +1,73 @@
+{
+  "contents": {
+    "twoColumnSearchResultsRenderer": {
+      "primaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "compactVideoRenderer": {
+                      "videoId": "search000001",
+                      "title": { "runs": [{ "text": "Search " }, { "text": "result one" }] },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Search Channel",
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "UCfixture000000000000005" } }
+                          }
+                        ]
+                      },
+                      "lengthText": { "simpleText": "6:30" },
+                      "viewCountText": { "simpleText": "12K views" },
+                      "publishedTimeText": { "simpleText": "5 days ago" },
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://example.invalid/vi/search000001/hq.jpg", "width": 480, "height": 360 }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "compactVideoRenderer": {
+                      "videoId": "search000002",
+                      "title": { "simpleText": "Search result two" },
+                      "shortBylineText": { "simpleText": "Another Channel" },
+                      "lengthText": { "simpleText": "0:45" },
+                      "viewCountText": { "simpleText": "900 views" },
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://example.invalid/vi/search000002/hq.jpg", "width": 480, "height": 360 }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "search000003",
+                      "title": { "simpleText": "Also a videoRenderer" },
+                      "ownerText": { "simpleText": "Third Channel" },
+                      "lengthText": { "simpleText": "3:20" },
+                      "viewCountText": { "simpleText": "100 views" },
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://example.invalid/vi/search000003/hq.jpg", "width": 480, "height": 360 }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "continuationItemRenderer": {
+                      "continuationCommand": { "token": "SEARCH_CONTINUATION_TOKEN" }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

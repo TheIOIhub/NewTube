@@ -1,0 +1,112 @@
+{
+  "playabilityStatus": { "status": "OK" },
+  "videoDetails": {
+    "videoId": "player000001",
+    "title": "Player fixture video",
+    "lengthSeconds": "612",
+    "viewCount": "98765",
+    "author": "Fixture Channel",
+    "channelId": "UCfixture000000000000001",
+    "shortDescription": "Line one\nLine two",
+    "thumbnail": {
+      "thumbnails": [
+        { "url": "https://example.invalid/vi/player000001/mq.jpg", "width": 168, "height": 94 },
+        { "url": "https://example.invalid/vi/player000001/hq.jpg", "width": 480, "height": 360 }
+      ]
+    }
+  },
+  "microformat": {
+    "playerMicroformatRenderer": {
+      "publishDate": "2026-01-02",
+      "ownerChannelName": "Fixture Channel",
+      "thumbnail": {
+        "thumbnails": [
+          { "url": "https://example.invalid/avatar/176.jpg", "width": 176 }
+        ]
+      }
+    }
+  },
+  "streamingData": {
+    "formats": [
+      {
+        "itag": 18,
+        "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+        "width": 640,
+        "height": 360,
+        "url": "https://example.invalid/progressive360.mp4"
+      },
+      {
+        "itag": 22,
+        "mimeType": "video/mp4; codecs=\"avc1.64001F, mp4a.40.2\"",
+        "width": 1280,
+        "height": 720,
+        "url": "https://example.invalid/progressive720.mp4"
+      }
+    ],
+    "adaptiveFormats": [
+      {
+        "itag": 137,
+        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+        "width": 1920,
+        "height": 1080,
+        "url": "https://example.invalid/video1080.mp4"
+      },
+      {
+        "itag": 134,
+        "mimeType": "video/mp4; codecs=\"avc1.4d401f\"",
+        "width": 854,
+        "height": 480,
+        "url": "https://example.invalid/video480.mp4"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "url": "https://example.invalid/audio.mp4",
+        "audioSampleRate": "44100"
+      },
+      {
+        "itag": 251,
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "url": "https://example.invalid/audio2.webm"
+      }
+    ]
+  },
+  "contents": {
+    "twoColumnWatchNextResults": {
+      "secondaryResults": {
+        "secondaryResults": {
+          "results": [
+            {
+              "compactVideoRenderer": {
+                "videoId": "related000001",
+                "title": { "simpleText": "First related" },
+                "ownerText": { "simpleText": "Related Channel" },
+                "lengthText": { "simpleText": "2:05" },
+                "viewCountText": { "simpleText": "1.1K views" },
+                "thumbnail": {
+                  "thumbnails": [
+                    { "url": "https://example.invalid/vi/related000001/hq.jpg", "width": 480, "height": 360 }
+                  ]
+                }
+              }
+            },
+            {
+              "compactVideoRenderer": {
+                "videoId": "related000002",
+                "title": { "simpleText": "Second related" },
+                "ownerText": { "simpleText": "Related Channel" },
+                "lengthText": { "simpleText": "9:59" },
+                "viewCountText": { "simpleText": "88 views" },
+                "thumbnail": {
+                  "thumbnails": [
+                    { "url": "https://example.invalid/vi/related000002/hq.jpg", "width": 480, "height": 360 }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

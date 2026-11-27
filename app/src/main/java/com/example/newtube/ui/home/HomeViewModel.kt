@@ -2,21 +2,27 @@ package com.example.newtube.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.newtube.innertube.ContentSourceUnavailableException
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
+import com.example.newtube.repository.FeedKey
 import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.toUserMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: VideoRepository,
@@ -28,6 +34,10 @@ class HomeViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
+    /** True when the last refresh failed but a cached feed is still on screen. */
+    private val _sourceUnavailable = MutableStateFlow(false)
+    val sourceUnavailable: StateFlow<Boolean> = _sourceUnavailable
+
     private val _selectedCategory = MutableStateFlow(HomeCategory.ALL)
     val selectedCategory: StateFlow<HomeCategory> = _selectedCategory
 
@@ -38,10 +48,44 @@ class HomeViewModel @Inject constructor(
 
     private val cache = mutableMapOf<HomeCategory, List<Video>>()
 
+    /** The category whose feed is currently shown; guards cross-category state. */
+    private var displayedCategory: HomeCategory? = null
+
     /** Incremented by every fetch; stale responses compare against it and bail out. */
     private var requestToken = 0
 
+    /** A network result has been published for the current key; don't undo it with cached data. */
+    private var networkPublished = false
+
+    /** Live fetches, so a stale response cannot clear a newer refresh indicator. */
+    private var inFlight = 0
+
+    /** While caches are being cleared, pre-clear Room emissions must be ignored. */
+    private var clearInFlight = 0
+    private var preferencesGeneration = 0
+
+    /** After a preference change, only a fresh refresh may publish a feed. */
+    private var awaitFreshFeed = false
+
     init {
+        // Stale-while-revalidate: Room publishes the cached feed before the
+        // network result, and a failed refresh never overwrites that state.
+        viewModelScope.launch {
+            _selectedCategory
+                .flatMapLatest { category ->
+                    repository.observeFeed(FeedKey.Home(category)).map { category to it }
+                }
+                .collect { (category, cached) ->
+                    if (clearInFlight > 0 || awaitFreshFeed) return@collect
+                    if (category != _selectedCategory.value || cached.isEmpty()) return@collect
+                    cache[category] = cached
+                    // A completed network fetch already published fresher data
+                    // for this key; a late Room emission must not undo it.
+                    if (networkPublished) return@collect
+                    displayedCategory = category
+                    _uiState.value = UiState.Success(cached)
+                }
+        }
         load()
         loadShortsShelf()
         viewModelScope.launch {
@@ -54,20 +98,46 @@ class HomeViewModel @Inject constructor(
 
     /** Region/language changed: cached feeds must be replaced, not shown stale. */
     fun onContentPreferencesChanged() {
+        val generation = ++preferencesGeneration
+        clearInFlight += 1
+        awaitFreshFeed = true
         cache.clear()
-        load()
-        loadShortsShelf()
+        displayedCategory = null
+        networkPublished = false
+        _sourceUnavailable.value = false
+        _uiState.value = UiState.Loading
+        viewModelScope.launch {
+            try {
+                repository.clearFeedCaches()
+            } catch (_: Exception) {
+                // Clearing is best effort: the reload below still publishes a
+                // fresh feed and must not leave the screen stuck on Loading.
+            } finally {
+                clearInFlight = (clearInFlight - 1).coerceAtLeast(0)
+                if (generation == preferencesGeneration) {
+                    load()
+                    loadShortsShelf()
+                }
+            }
+        }
     }
 
     fun selectCategory(category: HomeCategory) {
         if (category == _selectedCategory.value) return
+        // Invalidate the previous key's request before changing the selection.
+        requestToken++
         _selectedCategory.value = category
+        networkPublished = false
+        _sourceUnavailable.value = false
         val cached = cache[category]
         if (cached != null) {
+            displayedCategory = category
             _uiState.value = UiState.Success(cached)
-            return
+            // Show the cache immediately, then revalidate that same key.
+            fetch(showLoading = false)
+        } else {
+            load()
         }
-        load()
     }
 
     fun load() = fetch(showLoading = true)
@@ -93,25 +163,32 @@ class HomeViewModel @Inject constructor(
     private fun fetch(showLoading: Boolean) {
         val token = ++requestToken
         val category = _selectedCategory.value
-        if (showLoading) _uiState.value = UiState.Loading else _isRefreshing.value = true
+        // Only a same-key refresh may keep an existing Success on screen.
+        val keepCached = displayedCategory == category
+        inFlight += 1
+        _isRefreshing.value = true
+        if (showLoading && !keepCached) _uiState.value = UiState.Loading
         viewModelScope.launch {
             try {
-                val feed =
-                    if (category == HomeCategory.FOR_YOU) {
-                        repository.getForYouFeed()
-                    } else {
-                        repository.getHomeFeed(category)
-                    }
-                if (token != requestToken) return@launch
+                val feed = repository.refreshFeed(FeedKey.Home(category)).getOrThrow()
+                if (token != requestToken || category != _selectedCategory.value) return@launch
                 cache[category] = feed
+                displayedCategory = category
+                networkPublished = true
+                awaitFreshFeed = false
+                _sourceUnavailable.value = false
                 _uiState.value = UiState.Success(feed)
             } catch (e: Exception) {
-                if (token != requestToken) return@launch
-                if (showLoading || _uiState.value !is UiState.Success) {
+                if (token != requestToken || category != _selectedCategory.value) return@launch
+                // Only a chain-wide source failure is shown as a banner;
+                // ordinary errors on a cached screen stay silent.
+                _sourceUnavailable.value = e is ContentSourceUnavailableException
+                if (displayedCategory != category) {
                     _uiState.value = UiState.Error(e.toUserMessage())
                 }
             } finally {
-                if (token == requestToken) _isRefreshing.value = false
+                inFlight = (inFlight - 1).coerceAtLeast(0)
+                if (inFlight == 0) _isRefreshing.value = false
             }
         }
     }

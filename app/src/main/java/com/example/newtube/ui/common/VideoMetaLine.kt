@@ -8,8 +8,8 @@ data class VideoMetaLine(
 )
 
 /**
- * Invidious' default instance returns `viewCount = 0`, `lengthSeconds = 0` and
- * `publishedText = "0 seconds ago"` for broken trending items. Hide those
+ * Some browse responses return `viewCount = 0`, `duration = 0` and
+ * `publishedTimeText = "0 seconds ago"` for incomplete items. Hide those
  * segments, but keep a genuine zero-view upload that has a duration.
  */
 fun videoMetaLine(video: Video): VideoMetaLine {

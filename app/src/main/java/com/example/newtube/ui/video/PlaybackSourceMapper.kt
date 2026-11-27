@@ -30,13 +30,18 @@ internal fun PlaybackSource.toMediaSource(
             ProgressiveMediaSource
                 .Factory(dataSourceFactory)
                 .createMediaSource(mediaItem())
-        is PlaybackSource.Merged ->
-            MergingMediaSource(
-                ProgressiveMediaSource
-                    .Factory(dataSourceFactory)
-                    .createMediaSource(mediaItem()),
-                ProgressiveMediaSource
-                    .Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(audioUrl)),
-            )
+        is PlaybackSource.Merged -> {
+            // The chosen audio is the first adaptive track; the alternatives
+            // follow it so track selection prefers the chosen one by default.
+            val items =
+                listOf(mediaItem()) +
+                    (listOf(audioUrl) + audioAlternatives).distinct().map(MediaItem::fromUri)
+            val sources =
+                items.map { item ->
+                    ProgressiveMediaSource
+                        .Factory(dataSourceFactory)
+                        .createMediaSource(item)
+                }
+            MergingMediaSource(*sources.toTypedArray())
+        }
     }

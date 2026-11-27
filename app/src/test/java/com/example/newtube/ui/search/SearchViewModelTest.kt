@@ -1,21 +1,30 @@
 package com.example.newtube.ui.search
 
+import com.example.newtube.innertube.ContentSourceUnavailableException
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.Video
+import com.example.newtube.repository.FeedKey
 import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
@@ -30,6 +39,8 @@ class SearchViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         io.mockk.every { settingsRepository.settings } returns flowOf(AppSettings())
+        every { repository.observeFeed(any()) } returns flowOf(emptyList())
+        coEvery { repository.refreshFeed(any()) } returns Result.success(emptyList())
     }
 
     @After
@@ -41,7 +52,7 @@ class SearchViewModelTest {
     fun `search debounces the query and exposes results`() =
         runTest {
             val videos = listOf(video("1"))
-            coEvery { repository.search("kotlin", 1) } returns videos
+            coEvery { repository.refreshFeed(FeedKey.Search("kotlin", 1)) } returns Result.success(videos)
 
             val viewModel = SearchViewModel(repository, settingsRepository)
             viewModel.onQueryChange("kotlin")
@@ -67,7 +78,8 @@ class SearchViewModelTest {
         runTest {
             val first = video("1")
             val second = video("2")
-            coEvery { repository.search("kotlin", 1) } returns listOf(first)
+            coEvery { repository.refreshFeed(FeedKey.Search("kotlin", 1)) } returns
+                Result.success(listOf(first))
             coEvery { repository.search("kotlin", 2) } returns listOf(second)
 
             val viewModel = SearchViewModel(repository, settingsRepository)
@@ -83,7 +95,6 @@ class SearchViewModelTest {
     fun `suggestions are mapped and cleared on blank query`() =
         runTest {
             coEvery { repository.searchSuggestions("kot") } returns listOf("kotlin", "kotlin coroutines")
-            coEvery { repository.search(any(), any()) } returns emptyList()
             val viewModel = SearchViewModel(repository, settingsRepository)
 
             viewModel.onQueryChange("kot")
@@ -99,7 +110,7 @@ class SearchViewModelTest {
     fun `suggestion endpoint failure leaves results intact`() =
         runTest {
             coEvery { repository.searchSuggestions(any()) } throws IOException("boom")
-            coEvery { repository.search(any(), any()) } returns listOf(video("1"))
+            coEvery { repository.refreshFeed(any()) } returns Result.success(listOf(video("1")))
             val viewModel = SearchViewModel(repository, settingsRepository)
 
             viewModel.onQueryChange("kot")
@@ -112,7 +123,8 @@ class SearchViewModelTest {
     @Test
     fun `acceptSuggestion searches immediately`() =
         runTest {
-            coEvery { repository.search("kotlin", 1) } returns listOf(video("1"))
+            coEvery { repository.refreshFeed(FeedKey.Search("kotlin", 1)) } returns
+                Result.success(listOf(video("1")))
             val viewModel = SearchViewModel(repository, settingsRepository)
 
             viewModel.acceptSuggestion("kotlin")
@@ -120,6 +132,157 @@ class SearchViewModelTest {
 
             assertEquals(UiState.Success(listOf(video("1"))), viewModel.uiState.value)
             assertEquals(emptyList<String>(), viewModel.suggestions.value)
+        }
+
+    @Test
+    fun `a query change shows the refresh indicator then clears it`() =
+        runTest {
+            val refresh = CompletableDeferred<Result<List<Video>>>()
+            coEvery { repository.refreshFeed(FeedKey.Search("kotlin", 1)) } coAnswers { refresh.await() }
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            val observed = mutableListOf<Boolean>()
+            val collector = launch { viewModel.isRefreshing.take(3).toList(observed) }
+
+            viewModel.onQueryChange("kotlin")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertTrue(viewModel.isRefreshing.value)
+
+            refresh.complete(Result.success(listOf(video("1"))))
+            testDispatcher.scheduler.advanceUntilIdle()
+            collector.join()
+
+            assertEquals(listOf(false, true, false), observed)
+        }
+
+    @Test
+    fun `cached results are emitted before the network result`() =
+        runTest {
+            val cached = listOf(video("cached"))
+            val fresh = listOf(video("fresh"))
+            every { repository.observeFeed(FeedKey.Search("kotlin", 1)) } returns flowOf(cached)
+            val refresh = CompletableDeferred<Result<List<Video>>>()
+            coEvery { repository.refreshFeed(FeedKey.Search("kotlin", 1)) } coAnswers { refresh.await() }
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("kotlin")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(cached), viewModel.uiState.value)
+            assertTrue(viewModel.isRefreshing.value)
+
+            refresh.complete(Result.success(fresh))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(fresh), viewModel.uiState.value)
+            assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `clearing the query clears an in-flight refresh indicator`() =
+        runTest {
+            val refresh = CompletableDeferred<Result<List<Video>>>()
+            coEvery { repository.refreshFeed(FeedKey.Search("kot", 1)) } coAnswers { refresh.await() }
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("kot")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertTrue(viewModel.isRefreshing.value)
+
+            viewModel.onQueryChange(" ")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertFalse(viewModel.isRefreshing.value)
+
+            refresh.complete(Result.success(listOf(video("stale"))))
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(emptyList<Video>()), viewModel.uiState.value)
+        }
+
+    @Test
+    fun `a failed refresh keeps the cached results`() =
+        runTest {
+            val cached = listOf(video("cached"))
+            every { repository.observeFeed(FeedKey.Search("kotlin", 1)) } returns flowOf(cached)
+            coEvery { repository.refreshFeed(FeedKey.Search("kotlin", 1)) } returns
+                Result.failure(IOException("offline"))
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("kotlin")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(cached), viewModel.uiState.value)
+            assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `source failure keeps cached results and raises the banner`() =
+        runTest {
+            val cached = listOf(video("cached"))
+            every { repository.observeFeed(FeedKey.Search("kotlin", 1)) } returns flowOf(cached)
+            coEvery { repository.refreshFeed(FeedKey.Search("kotlin", 1)) } returnsMany
+                listOf(
+                    Result.failure(ContentSourceUnavailableException("blocked")),
+                    Result.success(listOf(video("fresh"))),
+                )
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("kotlin")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(cached), viewModel.uiState.value)
+            assertTrue(viewModel.sourceUnavailable.value)
+
+            viewModel.retry()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+            assertFalse(viewModel.sourceUnavailable.value)
+        }
+
+    @Test
+    fun `switching to a query without cached results clears the old list`() =
+        runTest {
+            coEvery { repository.refreshFeed(FeedKey.Search("first", 1)) } returns
+                Result.success(listOf(video("old")))
+            coEvery { repository.refreshFeed(FeedKey.Search("second", 1)) } returns
+                Result.failure(IOException("offline"))
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("first")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("old"))), viewModel.uiState.value)
+
+            viewModel.onQueryChange("second")
+            assertEquals(UiState.Success(emptyList<Video>()), viewModel.uiState.value)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value is UiState.Error)
+            assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `a stale page append cannot overwrite fresh page one results`() =
+        runTest {
+            val secondPage = CompletableDeferred<List<Video>>()
+            coEvery { repository.refreshFeed(FeedKey.Search("q", 1)) } returnsMany
+                listOf(
+                    Result.success(listOf(video("old"))),
+                    Result.success(listOf(video("fresh"))),
+                )
+            coEvery { repository.search("q", 2) } coAnswers { secondPage.await() }
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("q")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("old"))), viewModel.uiState.value)
+
+            viewModel.loadMore()
+            viewModel.retry()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+
+            secondPage.complete(listOf(video("page2")))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+            assertFalse(viewModel.isLoadingMore.value)
         }
 
     private fun video(id: String) =

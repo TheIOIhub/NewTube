@@ -1,29 +1,24 @@
 package com.example.newtube.repository
 
 import com.example.newtube.database.ChannelDao
+import com.example.newtube.database.ChannelEntity
 import com.example.newtube.database.VideoDao
+import com.example.newtube.database.VideoEntity
+import com.example.newtube.implementation.FeedCacheRepository
 import com.example.newtube.implementation.VideoRepositoryImpl
+import com.example.newtube.innertube.YouTubeContentClient
 import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.HomeCategory
-import com.example.newtube.model.WatchHistoryEntry
 import com.example.newtube.model.PlaybackSource
-import com.example.newtube.remote.ChannelSearchDto
-import com.example.newtube.remote.ChannelVideosDto
-import com.example.newtube.remote.CommentDto
-import com.example.newtube.remote.CommentsPageDto
-import com.example.newtube.remote.FormatStreamDto
-import com.example.newtube.remote.InvidiousService
-import com.example.newtube.remote.ThumbnailDto
-import com.example.newtube.remote.VideoDto
-import com.example.newtube.repository.AccountRepository
-import com.example.newtube.repository.HistoryRepository
-import com.example.newtube.repository.SettingsRepository
+import com.example.newtube.model.WatchHistoryEntry
 import io.mockk.coEvery
 import io.mockk.coJustRun
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -34,835 +29,622 @@ import java.io.IOException
 
 class VideoRepositoryImplTest {
     private lateinit var repository: VideoRepositoryImpl
-    private val service: InvidiousService = mockk()
+    private val contentClient: YouTubeContentClient = mockk()
     private val dao: VideoDao = mockk()
     private val channelDao: ChannelDao = mockk()
     private val shortsCache: ShortsCacheRepository = mockk()
     private val settingsRepository: SettingsRepository = mockk(relaxed = true)
     private val historyRepository: HistoryRepository = mockk(relaxed = true)
     private val accountRepository: AccountRepository = mockk(relaxed = true)
+    private val feedCache: FeedCacheRepository = mockk(relaxed = true)
     private val settingsFlow = MutableStateFlow(AppSettings())
 
     @Before
     fun setUp() {
         repository =
             VideoRepositoryImpl(
-                service,
+                contentClient,
                 dao,
                 channelDao,
                 shortsCache,
                 settingsRepository,
                 historyRepository,
                 accountRepository,
+                feedCache,
             )
         settingsFlow.value = AppSettings()
         coEvery { settingsRepository.settings } returns settingsFlow
         coEvery { historyRepository.observeLocal(any()) } returns flowOf(emptyList())
+        coEvery { accountRepository.state } returns MutableStateFlow(AccountState.SignedOut)
         coEvery { shortsCache.knownChannelIds() } returns emptySet()
         coJustRun { shortsCache.rememberChannelIds(any()) }
+        coJustRun { shortsCache.clearKnownChannelIds() }
         coJustRun { shortsCache.clearFeedCache() }
         coJustRun { dao.insertAll(any()) }
+        coEvery { channelDao.getChannelById(any()) } returns null
+        coJustRun { channelDao.insert(any()) }
+        coEvery { contentClient.browse(any(), any()) } returns feedJson()
+        coEvery { contentClient.search(any(), any(), any()) } returns feedJson()
+        coEvery { contentClient.player(any()) } returns playerJson()
+        coEvery { contentClient.next(any()) } returns commentsJson()
+        coEvery { contentClient.suggestions(any()) } returns emptyList()
     }
 
     @Test
-    fun `getTrending should map the channel id and the largest thumbnail`() =
+    fun `getHomeFeed ALL uses a search feed because signed-out home browse is empty`() =
         runBlocking {
-            val dto =
-                VideoDto(
-                    type = "video",
-                    videoId = "1",
-                    title = "Test Video",
-                    author = "Test Author",
-                    authorId = "UC123",
-                    videoThumbnails =
-                        listOf(
-                            ThumbnailDto(url = "http://example.com/small.jpg", width = 120, height = 90),
-                            ThumbnailDto(url = "http://example.com/thumb.jpg", width = 480, height = 360),
-                        ),
-                    publishedText = "1 day ago",
-                    viewCount = 100L,
-                    lengthSeconds = 120L,
-                    liveNow = false,
+            coEvery { contentClient.search("популярні відео", null, null) } returns
+                feedJson(FeedItem("1"), FeedItem("2"), FeedItem("2"))
+
+            val feed = repository.getHomeFeed(HomeCategory.ALL)
+
+            assertEquals(listOf("1", "2"), feed.map { it.id })
+            coVerify(exactly = 1) { contentClient.search("популярні відео", null, null) }
+            coVerify(exactly = 0) { contentClient.browse(any(), any()) }
+        }
+
+    @Test
+    fun `getHomeFeed drops short clips so Shorts stay in their own shelf and tab`() =
+        runBlocking {
+            coEvery { contentClient.search("популярні відео", null, null) } returns
+                feedJson(
+                    FeedItem("short", seconds = 30),
+                    FeedItem("reel", seconds = 0),
+                    FeedItem("long", seconds = 300),
+                    FeedItem("live", seconds = 30, live = true),
                 )
-            coEvery { service.getTrending(any(), any(), any()) } returns listOf(dto)
-            coJustRun { dao.insertAll(any()) }
+
+            val feed = repository.getHomeFeed(HomeCategory.ALL)
+
+            assertEquals(setOf("long", "live"), feed.map { it.id }.toSet())
+        }
+
+    @Test
+    fun `getTrending maps feed metadata and writes it through to Room`() =
+        runBlocking {
+            coEvery { contentClient.search(any(), any(), any()) } returns
+                feedJson(FeedItem("1", title = "Test Video", seconds = 300))
 
             val result = repository.getTrending()
 
             assertEquals(1, result.size)
-            val video = result[0]
-            assertEquals("1", video.id)
-            assertEquals("Test Video", video.title)
-            assertEquals("Test Author", video.channelName)
-            assertEquals("UC123", video.channelId)
-            assertEquals("http://example.com/thumb.jpg", video.thumbnailUrl)
-            assertEquals(100L, video.views)
-            assertEquals("1 day ago", video.uploadedAt)
+            assertEquals("1", result[0].id)
+            assertEquals("Test Video", result[0].title)
+            assertEquals("UC1", result[0].channelId)
+            assertEquals("https://example.invalid/1.jpg", result[0].thumbnailUrl)
+            assertEquals(300L, result[0].duration)
+            coVerify { dao.insertAll(any()) }
         }
 
     @Test
-    fun `getTrending passes stored region and language to Invidious`() =
+    fun `getShorts uses one shorts search and never an obsolete shelf browse`() =
         runBlocking {
-            settingsFlow.value = AppSettings(contentCountry = "US", contentLanguage = "en")
-            coEvery { service.getTrending("US", "Default", "en") } returns emptyList()
-
-            repository.getTrending()
-
-            coVerify { service.getTrending("US", "Default", "en") }
-        }
-
-    @Test
-    fun `getHomeFeed passes region and language to every source`() =
-        runBlocking {
-            settingsFlow.value = AppSettings(contentCountry = "US", contentLanguage = "en")
-            coEvery { service.getTrending(any(), any(), any()) } returns emptyList()
-            coEvery { service.getPopular() } returns emptyList()
-            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns emptyList()
-
-            repository.getHomeFeed(HomeCategory.ALL)
-
-            coVerify { service.getTrending("US", "Default", "en") }
-            coVerify { service.searchVideos(any(), any(), any(), "US", "en") }
-        }
-
-    @Test
-    fun `getShortsShelf passes region and language to the shorts search`() =
-        runBlocking {
-            settingsFlow.value = AppSettings(contentCountry = "US", contentLanguage = "en")
-            coEvery { service.getShorts(any(), any(), any(), any(), any(), any()) } returns emptyList()
-
-            repository.getShortsShelf()
-
-            coVerify { service.getShorts(any(), any(), any(), any(), "US", "en") }
-        }
-
-    @Test
-    fun `clearFeedCaches clears known shorts channels`() =
-        runBlocking {
-            coJustRun { shortsCache.clearKnownChannelIds() }
-
-            repository.clearFeedCaches()
-
-            coVerify { shortsCache.clearKnownChannelIds() }
-        }
-
-    @Test
-    fun `shorts discovery uses a Ukrainian query when no channels are cached`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns listOf(ChannelSearchDto(authorId = "UCua"))
-            coEvery { service.getChannelShorts("UCua", any()) } returns
-                ChannelVideosDto(videos = listOf(videoDto("short-ua", length = 30)), continuation = null)
-            coJustRun { dao.insertAll(any()) }
-
-            repository.getShorts(1)
-
-            coVerify {
-                service.searchChannels(
-                    withArg { assertTrue(it.any { char -> char in '\u0400'..'\u04FF' }) },
-                    any(),
-                    any(),
-                    any(),
-                    any(),
+            coEvery { contentClient.search("#shorts", null, null) } returns
+                feedJson(
+                    FeedItem("short", seconds = 30),
+                    FeedItem("reel", seconds = 0),
+                    FeedItem("long", seconds = 181),
+                    FeedItem("live", seconds = 30, live = true),
                 )
-            }
+
+            val shorts = repository.getShorts(1)
+
+            assertEquals(setOf("short", "reel"), shorts.map { it.id }.toSet())
+            coVerify(exactly = 1) { contentClient.search("#shorts", null, null) }
+            coVerify(exactly = 0) { contentClient.browse("FEshorts", any()) }
         }
 
     @Test
-    fun `shorts discovery passes region and language to channel search`() =
+    fun `getShortsShelf keeps short reels and drops long or live clips`() =
         runBlocking {
-            settingsFlow.value = AppSettings(contentCountry = "US", contentLanguage = "en")
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
-                listOf(ChannelSearchDto(authorId = "UCua"))
-            coEvery { service.getChannelShorts("UCua", any()) } returns
-                ChannelVideosDto(videos = listOf(videoDto("ua-short", length = 30)), continuation = null)
+            coEvery { contentClient.search("#shorts", null, null) } returns
+                feedJson(
+                    FeedItem("short", seconds = 30),
+                    FeedItem("duplicate", seconds = 30),
+                    FeedItem("duplicate", seconds = 30),
+                    FeedItem("long", seconds = 61),
+                    FeedItem("zero", seconds = 0),
+                    FeedItem("live", seconds = 30, live = true),
+                )
 
-            repository.getShorts(1)
+            val shelf = repository.getShortsShelf(limit = 5)
 
-            coVerify { service.searchChannels(any(), any(), any(), "US", "en") }
+            assertEquals(setOf("short", "duplicate", "zero"), shelf.map { it.id }.toSet())
+            coVerify(exactly = 1) { contentClient.search("#shorts", null, null) }
         }
 
     @Test
-    fun `clearFeedCaches clears repository channel rotation too`() =
+    fun `clearFeedCaches clears the local shorts state`() =
         runBlocking {
-            coJustRun { shortsCache.clearKnownChannelIds() }
-            coJustRun { shortsCache.clearFeedCache() }
-
             repository.clearFeedCaches()
 
             coVerify { shortsCache.clearFeedCache() }
+            coVerify { shortsCache.clearKnownChannelIds() }
+            coVerify { feedCache.clearAll() }
+        }
+
+    @Test
+    fun `observeFeed parses cached JSON and emits empty when absent`() =
+        runBlocking {
+            every { feedCache.observe("home:ALL") } returns flowOf(cachedFeedJson(FeedItem("cached")))
+            every { feedCache.observe("shorts") } returns flowOf(null)
+
+            assertEquals(listOf("cached"), repository.observeFeed(FeedKey.Home(HomeCategory.ALL)).first().map { it.id })
+            assertTrue(repository.observeFeed(FeedKey.Shorts).first().isEmpty())
+        }
+
+    @Test
+    fun `refreshFeed stores the raw response and returns parsed videos`() =
+        runBlocking {
+            val json = feedJson(FeedItem("fresh"))
+            coEvery { contentClient.search("популярні відео", null, null) } returns json
+            coJustRun { feedCache.put(any(), any()) }
+
+            val result = repository.refreshFeed(FeedKey.Home(HomeCategory.ALL))
+
+            assertEquals(listOf("fresh"), result.getOrThrow().map { it.id })
+            coVerify(exactly = 1) { feedCache.put(any(), any()) }
+            coVerify(exactly = 0) { feedCache.put("home:ALL", json) }
+        }
+
+    @Test
+    fun `refreshFeed with no search continuation keeps the cached page`() =
+        runBlocking {
+            coEvery { contentClient.search("q", null, null) } returns feedJson(FeedItem("page1"))
+
+            repository.refreshFeed(FeedKey.Search("q", 1))
+            assertTrue(repository.refreshFeed(FeedKey.Search("q", 2)).getOrThrow().isEmpty())
+
+            coVerify(exactly = 1) { feedCache.put("search:q:1", any()) }
+            coVerify(exactly = 0) { feedCache.put("search:q:2", any()) }
+        }
+
+    @Test
+    fun `refreshFeed failure keeps the cached feed untouched`() =
+        runBlocking {
+            coEvery { contentClient.search("#shorts", null, null) } throws IOException("offline")
+
+            assertTrue(repository.refreshFeed(FeedKey.Shorts).isFailure)
+            coVerify(exactly = 0) { feedCache.put(any(), any()) }
+        }
+
+    @Test
+    fun `refreshFeed with an unusable response keeps the cached feed untouched`() =
+        runBlocking {
+            coEvery { contentClient.search("популярні відео", null, null) } returns "<html>bot check</html>"
+
+            assertTrue(repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)).getOrThrow().isEmpty())
+            coVerify(exactly = 0) { feedCache.put(any(), any()) }
+        }
+
+    @Test
+    fun `search cursors are isolated per query`() =
+        runBlocking {
+            coEvery { contentClient.search("first", null, null) } returns
+                feedJson(FeedItem("a1"), continuation = "first-token")
+            coEvery { contentClient.search("other", null, null) } returns
+                feedJson(FeedItem("b1"), continuation = "other-token")
+            coEvery { contentClient.search("first", null, "first-token") } returns
+                feedJson(FeedItem("a2"))
+            coEvery { contentClient.search("other", null, "other-token") } returns
+                feedJson(FeedItem("b2"))
+
+            assertEquals(listOf("a1"), repository.search("first", 1).map { it.id })
+            assertEquals(listOf("b1"), repository.search("other", 1).map { it.id })
+            assertEquals(listOf("a2"), repository.search("first", 2).map { it.id })
+            assertEquals(listOf("b2"), repository.search("other", 2).map { it.id })
+
+            coVerify { contentClient.search("first", null, "first-token") }
+            coVerify { contentClient.search("other", null, "other-token") }
         }
 
     @Test
     fun `getForYouFeed ranks a watched Ukrainian channel first`() =
         runBlocking {
-            coEvery { service.getTrending(any(), any(), any()) } returns
-                listOf(
-                    videoDto("us").copy(title = "Breaking news", authorId = "UCus"),
-                    videoDto("ua").copy(title = "Новини України", authorId = "UCua"),
-                )
-            coEvery { service.getPopular() } returns emptyList()
-            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns emptyList()
-            coEvery { service.getShorts(any(), any(), any(), any(), any(), any()) } returns emptyList()
-            coEvery { accountRepository.state } returns MutableStateFlow(AccountState.SignedOut)
-            coEvery { historyRepository.observeLocal(500) } returns
-                flowOf(
-                    listOf(
-                        WatchHistoryEntry(
-                            videoId = "old",
-                            title = "Watched",
-                            channelName = "UA",
-                            channelId = "UCua",
-                            authorAvatarUrl = "",
-                            thumbnailUrl = "",
-                            durationMs = 1000L,
-                            watchedAt = System.currentTimeMillis(),
-                        ),
-                    ),
-                )
+            coEvery { contentClient.search(any(), any(), any()) } returns forYouJson()
+            coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
 
             assertEquals("ua", repository.getForYouFeed().first().id)
         }
 
     @Test
-    fun `getVideoDetails should prefer a progressive stream over the HLS manifest`() =
+    fun `refreshFeed Home FOR_YOU keeps the same ranked order as getForYouFeed`() =
         runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    hlsUrl = "https://example.com/manifest",
-                    formatStreams = listOf(FormatStreamDto(url = "https://example.com/progressive.mp4", type = "video/mp4")),
-                )
-            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
+            coEvery { contentClient.search(any(), any(), any()) } returns forYouJson()
+            coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
 
-            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
+            val refreshed = repository.refreshFeed(FeedKey.Home(HomeCategory.FOR_YOU)).getOrThrow()
 
-            assertEquals(PlaybackSource.Progressive("https://example.com/progressive.mp4"), details.playback)
+            assertEquals("ua", refreshed.first().id)
+            coVerify { dao.insertAll(any()) }
         }
 
     @Test
-    fun `getVideoDetails should merge adaptive tracks instead of using HLS for VOD`() =
+    fun `observeFeed Home FOR_YOU ranks cached videos too`() =
         runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    hlsUrl = "https://example.com/broken-manifest",
-                    adaptiveFormats =
+            every { feedCache.observe("home:FOR_YOU") } returns
+                flowOf(
+                    cachedFeedJson(
+                        FeedItem("us", title = "Breaking news", channelId = "UCus"),
+                        FeedItem("ua", title = "Новини України", channelId = "UCua"),
+                    ),
+                )
+            coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
+
+            val cached = repository.observeFeed(FeedKey.Home(HomeCategory.FOR_YOU)).first()
+
+            assertEquals("ua", cached.first().id)
+            coVerify { dao.insertAll(any()) }
+        }
+
+    @Test
+    fun `refreshFeed and observeFeed apply content filtering and the feed limit`() =
+        runBlocking {
+            val json =
+                feedJson(
+                    *((1..70).map { FeedItem("$it") } + FeedItem("blocked", title = "adult content")).toTypedArray(),
+                )
+            coEvery { contentClient.search(any(), any(), any()) } returns json
+            every { feedCache.observe("home:ALL") } returns
+                flowOf(cachedFeedJson(*((1..70).map { FeedItem("$it") } + FeedItem("blocked", title = "adult content")).toTypedArray()))
+
+            val refreshed = repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)).getOrThrow()
+            val cached = repository.observeFeed(FeedKey.Home(HomeCategory.ALL)).first()
+
+            assertEquals(60, refreshed.size)
+            assertEquals(60, cached.size)
+            assertTrue(refreshed.none { it.id == "blocked" })
+            assertTrue(cached.none { it.id == "blocked" })
+            coVerify { dao.insertAll(any()) }
+        }
+
+    @Test
+    fun `search maps one InnerTube search response`() =
+        runBlocking {
+            coEvery { contentClient.search("query", null, null) } returns
+                feedJson(FeedItem("1"), FeedItem("2"))
+
+            val result = repository.search("query")
+
+            assertEquals(listOf("1", "2"), result.map { it.id })
+            coVerify(exactly = 1) { contentClient.search("query", null, null) }
+        }
+
+    @Test
+    fun `search page 2 uses the continuation and a missing token ends pagination`() =
+        runBlocking {
+            coEvery { contentClient.search("query", null, null) } returns
+                feedJson(FeedItem("page1"), continuation = "search-token")
+            coEvery { contentClient.search("query", null, "search-token") } returns
+                feedJson(FeedItem("page2"))
+
+            assertEquals(listOf("page1"), repository.search("query", 1).map { it.id })
+            assertEquals(listOf("page2"), repository.search("query", 2).map { it.id })
+            coVerify { contentClient.search("query", null, "search-token") }
+
+            // Page 2 had no continuation, so the mediator must see an empty page and stop.
+            assertTrue(repository.search("query", 3).isEmpty())
+            coVerify(exactly = 2) { contentClient.search("query", null, any()) }
+        }
+
+    @Test
+    fun `searchSuggestions uses suggestions and returns empty list on failure`() =
+        runBlocking {
+            coEvery { contentClient.suggestions("query") } returns listOf("first", "second")
+            coEvery { contentClient.suggestions("broken") } throws IOException("boom")
+
+            assertEquals(listOf("first", "second"), repository.searchSuggestions("query"))
+            assertEquals(emptyList<String>(), repository.searchSuggestions("broken"))
+            assertEquals(emptyList<String>(), repository.searchSuggestions("  "))
+            coVerify { contentClient.suggestions("query") }
+            coVerify { contentClient.suggestions("broken") }
+        }
+
+    @Test
+    fun `playbackUsesFreshPlayerResponse`() =
+        runBlocking {
+            coEvery { dao.getVideoById("v1") } returns cachedEntity("v1")
+            coEvery { contentClient.player("v1") } returns playerJson("v1")
+
+            assertEquals("Cached", repository.getVideoById("v1").title)
+            repository.getVideoDetails("v1", AppSettings.DEFAULT_QUALITY)
+            repository.getVideoDetails("v1", AppSettings.DEFAULT_QUALITY)
+
+            coVerify(exactly = 2) { contentClient.player("v1") }
+        }
+
+    @Test
+    fun `getVideoDetails maps description and related videos`() =
+        runBlocking {
+            coEvery { contentClient.player("v1") } returns
+                playerJson("v1", description = "About the video", related = listOf(FeedItem("2")))
+
+            val details = repository.getVideoDetails("v1", AppSettings.DEFAULT_QUALITY)
+
+            assertEquals("About the video", details.description)
+            assertEquals(listOf("2"), details.related.map { it.id })
+            assertEquals(PlaybackSource.Progressive("https://example.invalid/progressive.mp4"), details.playback)
+        }
+
+    @Test
+    fun `getVideoDetails applies the maxHeight cap before choosing playback`() =
+        runBlocking {
+            coEvery { contentClient.player("v1") } returns
+                playerJson(
+                    "v1",
+                    formats = emptyList(),
+                    adaptive =
                         listOf(
-                            adaptiveVideo("https://example.com/360.mp4", "360p", "avc1.4D401E"),
-                            adaptiveVideo("https://example.com/720.mp4", "720p", "avc1.4D401F"),
-                            adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
+                            format("https://example.invalid/360.mp4", "video/mp4; codecs=avc1.4D401E", 360),
+                            format("https://example.invalid/480.mp4", "video/mp4; codecs=avc1.4D401F", 480),
+                            format("https://example.invalid/720.mp4", "video/mp4; codecs=avc1.64001F", 720),
+                            format("https://example.invalid/audio.m4a", "audio/mp4; codecs=mp4a.40.2", bitrate = "130668"),
                         ),
                 )
-            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
+            val capped = repository.getVideoDetails("v1", maxHeight = 480)
+            val uncapped = repository.getVideoDetails("v1", maxHeight = 1080)
 
             assertEquals(
                 PlaybackSource.Merged(
-                    videoUrl = "https://example.com/720.mp4",
-                    audioUrl = "https://example.com/audio.m4a",
+                    videoUrl = "https://example.invalid/480.mp4",
+                    audioUrl = "https://example.invalid/audio.m4a",
                 ),
-                details.playback,
+                capped.playback,
+            )
+            assertEquals(
+                PlaybackSource.Merged(
+                    videoUrl = "https://example.invalid/720.mp4",
+                    audioUrl = "https://example.invalid/audio.m4a",
+                ),
+                uncapped.playback,
             )
         }
 
     @Test
-    fun `getVideoDetails should keep HLS for livestreams`() =
+    fun `getVideoDetails keeps HLS for live streams`() =
         runBlocking {
-            val dto =
-                videoDto(id = "live1").copy(
-                    type = "livestream",
-                    liveNow = true,
-                    hlsUrl = "https://example.com/live.m3u8",
-                    adaptiveFormats =
+            coEvery { contentClient.player("live1") } returns
+                playerJson(
+                    "live1",
+                    formats = emptyList(),
+                    adaptive =
                         listOf(
-                            adaptiveVideo("https://example.com/720.mp4", "720p", "avc1.4D401F"),
-                            adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
+                            format("https://example.invalid/720.mp4", "video/mp4; codecs=avc1.64001F", 720),
+                            format("https://example.invalid/audio.m4a", "audio/mp4; codecs=mp4a.40.2"),
                         ),
+                    hls = "https://example.invalid/live.m3u8",
+                    live = true,
                 )
-            coEvery { service.getVideoDetails("live1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
 
             val details = repository.getVideoDetails("live1", AppSettings.DEFAULT_QUALITY)
 
-            assertEquals(PlaybackSource.Hls("https://example.com/live.m3u8"), details.playback)
+            assertTrue(details.video.isLive)
+            assertEquals(PlaybackSource.Hls("https://example.invalid/live.m3u8"), details.playback)
         }
 
     @Test
-    fun `getVideoDetails should fall back to HLS when the adaptive pair is incomplete`() =
+    fun `getVideoDetails falls back to progressive then HLS for VOD`() =
         runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    hlsUrl = "https://example.com/manifest",
-                    adaptiveFormats = listOf(adaptiveVideo("https://example.com/720.mp4", "720p", "avc1.4D401F")),
-                )
-            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
-
-            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
-
-            assertEquals(PlaybackSource.Hls("https://example.com/manifest"), details.playback)
-        }
-
-    @Test
-    fun `getVideoDetails should merge separate DASH video and audio tracks`() =
-        runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    adaptiveFormats =
+            coEvery { contentClient.player("v1") } returns
+                playerJson(
+                    "v1",
+                    adaptive =
                         listOf(
-                            FormatStreamDto(url = "https://example.com/audio.m4a", type = "audio/mp4"),
-                            FormatStreamDto(url = "https://example.com/video.mp4", type = "video/mp4"),
+                            format("https://example.invalid/720.mp4", "video/mp4; codecs=avc1.64001F", 720),
                         ),
+                    hls = "https://example.invalid/manifest.m3u8",
                 )
-            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
 
-            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
+            val progressive = repository.getVideoDetails("v1", AppSettings.DEFAULT_QUALITY)
+            assertEquals(PlaybackSource.Progressive("https://example.invalid/progressive.mp4"), progressive.playback)
 
-            assertEquals(
-                PlaybackSource.Merged(
-                    videoUrl = "https://example.com/video.mp4",
-                    audioUrl = "https://example.com/audio.m4a",
-                ),
-                details.playback,
-            )
+            coEvery { contentClient.player("v2") } returns
+                playerJson(
+                    "v2",
+                    formats = emptyList(),
+                    adaptive =
+                        listOf(
+                            format("https://example.invalid/720.mp4", "video/mp4; codecs=avc1.64001F", 720),
+                        ),
+                    hls = "https://example.invalid/manifest.m3u8",
+                )
+            val hls = repository.getVideoDetails("v2", AppSettings.DEFAULT_QUALITY)
+            assertEquals(PlaybackSource.Hls("https://example.invalid/manifest.m3u8"), hls.playback)
         }
 
     @Test
-    fun `getVideoDetails should map recommended videos`() =
+    fun `getChannelVideos passes the continuation through to browse`() =
         runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    hlsUrl = "https://example.com/manifest",
-                    description = "About the video",
-                    recommendedVideos = listOf(videoDto(id = "2").copy(type = null)),
-                )
-            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
-
-            val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
-
-            assertEquals("About the video", details.description)
-            assertEquals(1, details.related.size)
-            assertEquals("2", details.related[0].id)
-        }
-
-    @Test
-    fun `getChannelVideos should pass the continuation token through`() =
-        runBlocking {
-            coEvery { service.getChannelVideos("UC123", "token") } returns
-                ChannelVideosDto(videos = listOf(videoDto(id = "5")), continuation = "next")
-            coJustRun { dao.insertAll(any()) }
+            coEvery { contentClient.browse("UC123", "token") } returns
+                feedJson(FeedItem("5"), continuation = "next")
 
             val page = repository.getChannelVideos("UC123", "token")
 
-            assertEquals(1, page.videos.size)
+            assertEquals(listOf("5"), page.videos.map { it.id })
             assertEquals("next", page.continuation)
+            coVerify { contentClient.browse("UC123", "token") }
         }
 
     @Test
-    fun `getComments should map comments and the total count`() =
+    fun `getChannelDetails uses Room when present and InnerTube otherwise`() =
         runBlocking {
-            coEvery { service.getComments("v1", null) } returns
-                CommentsPageDto(
-                    comments =
-                        listOf(
-                            CommentDto(
-                                commentId = "c1",
-                                author = "Alice",
-                                authorId = "UC1",
-                                authorThumbnail = "https://example.com/a.jpg",
-                                content = "Nice",
-                                likeCount = 12,
-                                publishedText = "2 days ago",
-                                isPinned = true,
-                            ),
-                        ),
-                    continuation = "nextComments",
-                    commentCount = 42,
-                )
+            coEvery { channelDao.getChannelById("UCcached") } returns
+                ChannelEntity("UCcached", "Cached", "", 1L, 2, "")
+            assertEquals("Cached", repository.getChannelDetails("UCcached").name)
 
-            val page = repository.getComments("v1")
-
-            assertEquals(42, page.totalCount)
-            assertEquals("nextComments", page.continuation)
-            assertEquals(1, page.comments.size)
-            val comment = page.comments[0]
-            assertEquals("c1", comment.id)
-            assertEquals("Alice", comment.author)
-            assertEquals("UC1", comment.authorChannelId)
-            assertEquals(12L, comment.likeCount)
-            assertTrue(comment.isPinned)
+            coEvery { channelDao.getChannelById("UC1") } returns null
+            coEvery { contentClient.browse("UC1", null) } returns channelJson("UC1", "Fresh")
+            assertEquals("Fresh", repository.getChannelDetails("UC1").name)
+            coVerify { channelDao.insert(any()) }
         }
 
     @Test
-    fun `getVideoDetails should map a livestream payload`() =
+    fun `getComments passes the continuation to next`() =
         runBlocking {
-            val dto =
-                videoDto(id = "live1").copy(
-                    type = "livestream",
-                    liveNow = true,
-                    lengthSeconds = 0,
-                    hlsUrl = "https://example.com/live.m3u8",
-                )
-            coEvery { service.getVideoDetails("live1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
+            coEvery { contentClient.next("comments-token") } returns
+                commentsJson("next-comments", "c1" to "Nice")
 
-            val details = repository.getVideoDetails("live1", AppSettings.DEFAULT_QUALITY)
+            val page = repository.getComments("v1", "comments-token")
 
-            assertEquals("live1", details.video.id)
-            assertTrue(details.video.isLive)
-            assertEquals(PlaybackSource.Hls("https://example.com/live.m3u8"), details.playback)
+            assertEquals("next-comments", page.continuation)
+            assertEquals(42L, page.totalCount)
+            assertEquals("c1", page.comments.single().id)
+            assertEquals("Nice", page.comments.single().content)
+            coVerify { contentClient.next("comments-token") }
+            coVerify(exactly = 0) { contentClient.player(any()) }
         }
 
     @Test
-    fun `mixed search results keep videos and livestreams but drop channels`() =
+    fun `getComments finds the comment continuation from the player response`() =
         runBlocking {
-            val channel = VideoDto(type = "channel", videoId = null, title = "Some channel")
-            val playlist = VideoDto(type = "playlist", videoId = null, title = "Some playlist")
-            val regular = videoDto(id = "1")
-            val live = videoDto(id = "2").copy(type = "livestream", liveNow = true)
-            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns listOf(channel, playlist, regular, live)
-            coJustRun { dao.insertAll(any()) }
+            coEvery { contentClient.player("v1") } returns
+                playerJson("v1", commentContinuation = "from-player")
+            coEvery { contentClient.next("from-player") } returns commentsJson()
 
-            val result = repository.search("q")
+            repository.getComments("v1")
 
-            assertEquals(listOf("1", "2"), result.map { it.id })
+            coVerify { contentClient.player("v1") }
+            coVerify { contentClient.next("from-player") }
         }
 
-    @Test
-    fun `getHomeFeed ALL merges every source and removes duplicates`() =
-        runBlocking {
-            coEvery { service.getTrending("UA", "Default", any()) } returns listOf(videoDto("1"), videoDto("2"))
-            coEvery { service.getTrending("UA", "Gaming", any()) } returns listOf(videoDto("2"), videoDto("3"))
-            coEvery { service.getPopular() } returns listOf(videoDto("3"), videoDto("4"))
-            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns listOf(videoDto("4"), videoDto("5"))
-            coJustRun { dao.insertAll(any()) }
+    private fun forYouJson() =
+        feedJson(
+            FeedItem("us", title = "Breaking news", channelId = "UCus"),
+            FeedItem("ua", title = "Новини України", channelId = "UCua"),
+        )
 
-            val feed = repository.getHomeFeed(HomeCategory.ALL)
+    private fun watchedUkrainian() =
+        WatchHistoryEntry(
+            videoId = "old",
+            title = "Watched",
+            channelName = "UA",
+            channelId = "UCua",
+            authorAvatarUrl = "",
+            thumbnailUrl = "",
+            durationMs = 1000L,
+            watchedAt = System.currentTimeMillis(),
+        )
 
-            assertEquals(setOf("1", "2", "3", "4", "5"), feed.map { it.id }.toSet())
-            assertEquals(feed.size, feed.map { it.id }.distinct().size)
-        }
-
-    @Test
-    fun `getHomeFeed keeps the feed when one source fails`() =
-        runBlocking {
-            coEvery { service.getTrending("UA", "Default", any()) } throws IOException("boom")
-            coEvery { service.getTrending("UA", "Gaming", any()) } returns listOf(videoDto("2"))
-            coEvery { service.getPopular() } returns listOf(videoDto("3"))
-            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } throws IOException("boom")
-            coJustRun { dao.insertAll(any()) }
-
-            val feed = repository.getHomeFeed(HomeCategory.ALL)
-
-            assertEquals(setOf("2", "3"), feed.map { it.id }.toSet())
-        }
-
-    @Test
-    fun `getHomeFeed fails only when every source fails`() =
-        runBlocking {
-            coEvery { service.getTrending(any(), any(), any()) } throws IOException("down")
-            coEvery { service.getPopular() } throws IOException("down")
-            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } throws IOException("down")
-
-            val error = runCatching { repository.getHomeFeed(HomeCategory.MUSIC) }.exceptionOrNull()
-
-            assertTrue(error is IOException)
-        }
-
-    @Test
-    fun `getHomeFeed topic category includes its anchor and searches`() =
-        runBlocking {
-            coEvery { service.getTrending("UA", "Gaming", any()) } returns listOf(videoDto("g1"))
-            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns listOf(videoDto("m1"))
-            coJustRun { dao.insertAll(any()) }
-
-            val feed = repository.getHomeFeed(HomeCategory.GAMING)
-
-            assertEquals(setOf("g1", "m1"), feed.map { it.id }.toSet())
-            coVerify { service.getTrending("UA", "Gaming", any()) }
-        }
-
-    @Test
-    fun `getShorts uses discovered channels and keeps 1 to 180 seconds`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
-                listOf(ChannelSearchDto(authorId = "UCa"), ChannelSearchDto(authorId = "UCb"))
-            coEvery { service.getChannelShorts("UCa", null) } returns
-                ChannelVideosDto(
-                    videos =
-                        listOf(
-                            videoDto("short1", length = 59),
-                            videoDto("long", length = 181),
-                            videoDto("live").copy(liveNow = true),
-                        ),
-                )
-            coEvery { service.getChannelShorts("UCb", null) } returns
-                ChannelVideosDto(
-                    videos = listOf(videoDto("short2", length = 90), videoDto("short1", length = 59)),
-                )
-            coJustRun { dao.insertAll(any()) }
-
-            val shorts = repository.getShorts(1)
-
-            assertEquals(setOf("short1", "short2"), shorts.map { it.id }.toSet())
-        }
-
-    @Test
-    fun `getShorts skips a channel that fails`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
-                listOf(ChannelSearchDto(authorId = "UCbad"), ChannelSearchDto(authorId = "UCgood"))
-            coEvery { service.getChannelShorts("UCbad", null) } throws IOException("500")
-            coEvery { service.getChannelShorts("UCgood", null) } returns
-                ChannelVideosDto(videos = listOf(videoDto("short1", length = 30)))
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals(listOf("short1"), repository.getShorts(1).map { it.id })
-        }
-
-    @Test
-    fun `getShorts falls back to curated channels when discovery is empty`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns emptyList()
-            coEvery { service.getChannelShorts(any(), null) } returns
-                ChannelVideosDto(videos = listOf(videoDto("fallback", length = 30)))
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals(listOf("fallback"), repository.getShorts(1).map { it.id })
-            coVerify { service.getChannelShorts(any(), null) }
-        }
-
-    @Test
-    fun `getShorts throws when every channel request fails`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
-                listOf(
-                    ChannelSearchDto(authorId = "UCa"),
-                    ChannelSearchDto(authorId = "UCb"),
-                    ChannelSearchDto(authorId = "UCc"),
-                )
-            coEvery { service.getChannelShorts(any(), null) } throws IOException("500")
-
-            val error = runCatching { repository.getShorts(1) }.exceptionOrNull()
-
-            assertTrue(error is IOException)
-        }
-
-    @Test
-    fun `getShorts caps per channel contribution and mixes many channels`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
-                (1..8).map { ChannelSearchDto(authorId = "UC$it") }
-            coEvery { service.getChannelShorts(any(), null) } answers {
-                val channel = firstArg<String>()
-                ChannelVideosDto(
-                    videos =
-                        (1..20).map { i ->
-                            videoDto("${channel}_$i", length = 30).copy(authorId = channel)
-                        },
-                )
-            }
-            coJustRun { dao.insertAll(any()) }
-
-            val shorts = repository.getShorts(1)
-
-            assertEquals(28, shorts.size)
-            val perChannel = shorts.groupBy { it.channelId }
-            assertTrue(perChannel.values.all { it.size <= 7 })
-            assertTrue(perChannel.size >= 4)
-        }
-
-    @Test
-    fun `getShorts tops up from fallback when discovery pool is small`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } answers {
-                listOf(ChannelSearchDto(authorId = "UC-a"), ChannelSearchDto(authorId = "UC-b"))
-            }
-            coEvery { service.getChannelShorts(any(), null) } answers {
-                val channel = firstArg<String>()
-                ChannelVideosDto(videos = listOf(videoDto("s-$channel", length = 30).copy(authorId = channel)))
-            }
-            coJustRun { dao.insertAll(any()) }
-
-            val shorts = repository.getShorts(1)
-
-            assertTrue(shorts.size >= 4)
-        }
-
-    @Test
-    fun `getShorts caps per channel when authorId is blank`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
-                (1..4).map { ChannelSearchDto(authorId = "UC$it") }
-            coEvery { service.getChannelShorts(any(), null) } answers {
-                val channel = firstArg<String>()
-                ChannelVideosDto(
-                    videos =
-                        (1..20).map { i ->
-                            videoDto("${channel}_$i", length = 30).copy(authorId = "")
-                        },
-                )
-            }
-            coJustRun { dao.insertAll(any()) }
-
-            val shorts = repository.getShorts(1)
-
-            assertEquals(28, shorts.size)
-        }
-
-    @Test
-    fun `getShorts rotates through fallback pool when discovery is empty`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns emptyList()
-            coEvery { service.getChannelShorts(any(), null) } answers {
-                val channel = firstArg<String>()
-                ChannelVideosDto(videos = listOf(videoDto("fb-$channel", length = 30).copy(authorId = channel)))
-            }
-            coJustRun { dao.insertAll(any()) }
-
-            val page1 = repository.getShorts(1)
-            val page2 = repository.getShorts(2)
-
-            assertTrue(page1.size >= 7)
-            assertTrue(page1.map { it.id }.toSet() != page2.map { it.id }.toSet())
-        }
-
-    @Test
-    fun `knownChannelsSkipDiscovery`() =
-        runBlocking {
-            val known = setOf("UCknown1", "UCknown2", "UCknown3")
-            coEvery { shortsCache.knownChannelIds() } returns known
-            coEvery { service.getChannelShorts(any(), null) } answers {
-                val channel = firstArg<String>()
-                ChannelVideosDto(videos = listOf(videoDto("s-$channel", length = 30).copy(authorId = channel)))
-            }
-            coJustRun { dao.insertAll(any()) }
-
-            val shorts = repository.getShorts(1)
-
-            assertEquals(3, shorts.size)
-            coVerify(exactly = 0) { service.searchChannels(any(), any(), any(), any(), any()) }
-            coVerify(exactly = 0) { shortsCache.rememberChannelIds(any()) }
-        }
-
-    @Test
-    fun `fallsBackToDiscoveryWhenCachedChannelsFail`() =
-        runBlocking {
-            val known = setOf("UCknown1", "UCknown2", "UCknown3")
-            coEvery { shortsCache.knownChannelIds() } returns known
-            coEvery { service.getChannelShorts(any(), null) } throws IOException("500")
-            coEvery { service.getChannelShorts("UCnew", null) } returns
-                ChannelVideosDto(videos = listOf(videoDto("short-new", length = 30)))
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
-                listOf(ChannelSearchDto(authorId = "UCnew"))
-            coJustRun { dao.insertAll(any()) }
-
-            val shorts = repository.getShorts(1)
-
-            assertEquals(listOf("short-new"), shorts.map { it.id })
-            coVerify { service.searchChannels(any(), any(), any(), any(), any()) }
-            coVerify { shortsCache.rememberChannelIds(known + "UCnew") }
-        }
-
-    @Test
-    fun `preservesCuratedFallback`() =
-        runBlocking {
-            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns emptyList()
-            coEvery { service.getChannelShorts(any(), null) } returns
-                ChannelVideosDto(videos = listOf(videoDto("fallback", length = 30)))
-            coJustRun { dao.insertAll(any()) }
-
-            val shorts = repository.getShorts(1)
-
-            assertEquals(listOf("fallback"), shorts.map { it.id }.distinct())
-            coVerify { service.getChannelShorts(any(), null) }
-            coVerify(exactly = 0) { shortsCache.rememberChannelIds(any()) }
-        }
-
-    @Test
-    fun `getTrending picks the largest avatar at or below 176 px`() =
-        runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    authorThumbnails =
-                        listOf(
-                            ThumbnailDto(url = "https://example.com/32.jpg", width = 32, height = 32),
-                            ThumbnailDto(url = "https://example.com/176.jpg", width = 176, height = 176),
-                            ThumbnailDto(url = "https://example.com/512.jpg", width = 512, height = 512),
-                        ),
-                )
-            coEvery { service.getTrending(any(), any(), any()) } returns listOf(dto)
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals("https://example.com/176.jpg", repository.getTrending().single().authorAvatarUrl)
-        }
-
-    @Test
-    fun `avatar falls back to the largest available when every size is above 176`() =
-        runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    authorThumbnails =
-                        listOf(
-                            ThumbnailDto(url = "https://example.com/512.jpg", width = 512, height = 512),
-                            ThumbnailDto(url = "https://example.com/900.jpg", width = 900, height = 900),
-                        ),
-                )
-            coEvery { service.getTrending(any(), any(), any()) } returns listOf(dto)
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals("https://example.com/900.jpg", repository.getTrending().single().authorAvatarUrl)
-        }
-
-    @Test
-    fun `missing author thumbnails map to an empty avatar`() =
-        runBlocking {
-            coEvery { service.getTrending(any(), any(), any()) } returns listOf(videoDto(id = "1"))
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals("", repository.getTrending().single().authorAvatarUrl)
-        }
-
-    @Test
-    fun `getShortsShelf is one search and keeps only 1 to 60 second non-live clips`() =
-        runBlocking {
-            coEvery { service.getShorts(any(), any(), any(), any(), any(), any()) } returns
-                listOf(
-                    videoDto("short", length = 30),
-                    videoDto("live", length = 30).copy(liveNow = true),
-                    videoDto("long", length = 61),
-                    videoDto("zero", length = 0),
-                    videoDto("short", length = 30),
-                )
-            coJustRun { dao.insertAll(any()) }
-
-            val shelf = repository.getShortsShelf(limit = 8)
-
-            assertEquals(listOf("short"), shelf.map { it.id })
-            coVerify(exactly = 1) { service.getShorts(any(), any(), any(), any(), any(), any()) }
-        }
-
-    @Test
-    fun `getShortsShelf honours the limit`() =
-        runBlocking {
-            coEvery { service.getShorts(any(), any(), any(), any(), any(), any()) } returns
-                (1..10).map { videoDto("s$it", length = 30) }
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals(3, repository.getShortsShelf(limit = 3).size)
-        }
-
-    @Test
-    fun `getVideoDetails respects a 480p cap`() =
-        runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    adaptiveFormats =
-                        listOf(
-                            adaptiveVideo("https://example.com/360.mp4", "360p", "avc1.4D401E"),
-                            adaptiveVideo("https://example.com/480.mp4", "480p", "avc1.4D401F"),
-                            adaptiveVideo("https://example.com/720.mp4", "720p", "avc1.4D401F"),
-                            adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
-                        ),
-                )
-            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals(
-                PlaybackSource.Merged(
-                    videoUrl = "https://example.com/480.mp4",
-                    audioUrl = "https://example.com/audio.m4a",
-                ),
-                repository.getVideoDetails("1", maxHeight = 480).playback,
-            )
-        }
-
-    @Test
-    fun `getVideoDetails allows 1080p when the cap is 1080`() =
-        runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    adaptiveFormats =
-                        listOf(
-                            adaptiveVideo("https://example.com/720.mp4", "720p", "avc1.4D401F"),
-                            adaptiveVideo("https://example.com/1080.mp4", "1080p", "avc1.640028"),
-                            adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
-                        ),
-                )
-            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals(
-                PlaybackSource.Merged(
-                    videoUrl = "https://example.com/1080.mp4",
-                    audioUrl = "https://example.com/audio.m4a",
-                ),
-                repository.getVideoDetails("1", maxHeight = 1080).playback,
-            )
-        }
-
-    @Test
-    fun `a progressive track above the cap is skipped when adaptive is available`() =
-        runBlocking {
-            val dto =
-                videoDto(id = "1").copy(
-                    formatStreams =
-                        listOf(
-                            FormatStreamDto(
-                                url = "https://example.com/progressive-720.mp4",
-                                type = "video/mp4",
-                                qualityLabel = "720p",
-                            ),
-                        ),
-                    adaptiveFormats =
-                        listOf(
-                            adaptiveVideo("https://example.com/adaptive-360.mp4", "360p", "avc1.4D401E"),
-                            adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
-                        ),
-                )
-            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
-            coJustRun { dao.insertAll(any()) }
-
-            assertEquals(
-                PlaybackSource.Merged(
-                    videoUrl = "https://example.com/adaptive-360.mp4",
-                    audioUrl = "https://example.com/audio.m4a",
-                ),
-                repository.getVideoDetails("1", maxHeight = 480).playback,
-            )
-        }
-
-    private fun adaptiveVideo(
-        url: String,
-        qualityLabel: String,
-        codecs: String,
-    ) = FormatStreamDto(
-        url = url,
-        type = "video/mp4; codecs=\"$codecs\"",
-        qualityLabel = qualityLabel,
+    private data class FeedItem(
+        val id: String,
+        val title: String = "Video $id",
+        val channelId: String = "UC$id",
+        val seconds: Long = 300,
+        val live: Boolean = false,
     )
 
-    private fun adaptiveAudio(
-        url: String,
-        bitrate: String,
-        codecs: String,
-    ) = FormatStreamDto(
-        url = url,
-        type = "audio/mp4; codecs=\"$codecs\"",
-        bitrate = bitrate,
-    )
+    private fun durationText(seconds: Long): String = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
 
-    private fun videoDto(id: String, length: Long = 120) =
-        VideoDto(
-            type = "video",
-            videoId = id,
-            title = "Video $id",
-            author = "Author",
-            authorId = "UC$id",
-            videoThumbnails = listOf(ThumbnailDto(url = "https://example.com/$id.jpg", width = 480, height = 360)),
-            lengthSeconds = length,
+    private fun renderer(
+        item: FeedItem,
+        key: String = "videoRenderer",
+    ): String {
+        val badge =
+            if (item.live) {
+                """"badges":[{"metadataBadgeRenderer":{"style":"LIVE"}}],"""
+            } else {
+                ""
+            }
+        return """{"$key":{"videoId":"${item.id}","title":{"simpleText":"${item.title}"},"ownerText":{"runs":[{"text":"Author","navigationEndpoint":{"browseEndpoint":{"browseId":"${item.channelId}"}}}]},$badge"lengthText":{"simpleText":"${durationText(item.seconds)}"},"viewCountText":{"simpleText":"100 views"},"publishedTimeText":{"simpleText":"1 day ago"},"thumbnail":{"thumbnails":[{"url":"https://example.invalid/${item.id}.jpg","width":480,"height":360}]}}}"""
+    }
+
+    private fun feedJson(
+        vararg items: FeedItem,
+        continuation: String? = null,
+    ): String {
+        val token =
+            if (continuation == null) {
+                ""
+            } else {
+                """,{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"$continuation"}}}}"""
+            }
+        return """{"contents":[${items.joinToString(",") { renderer(it) }}$token]}"""
+    }
+
+    /** Compact cache payload shape that must fit into a Room CursorWindow row. */
+    private fun cachedFeedJson(vararg items: FeedItem): String =
+        items.joinToString(",", "[", "]") { item ->
+            """{"id":"${item.id}","title":"${item.title}","channelName":"Author","channelId":"${item.channelId}","thumbnailUrl":"https://example.invalid/${item.id}.jpg","duration":${item.seconds},"views":100,"uploadedAt":"1 day ago","isLive":${item.live},"authorAvatarUrl":""}"""
+        }
+
+    private fun format(
+        url: String,
+        mime: String,
+        height: Int? = null,
+        bitrate: String = "",
+    ): String {
+        val parts = mutableListOf("\"url\":\"$url\"", "\"mimeType\":\"$mime\"")
+        height?.let { parts += "\"height\":$it" }
+        if (bitrate.isNotBlank()) parts += "\"bitrate\":\"$bitrate\""
+        return parts.joinToString(",", "{", "}")
+    }
+
+    private fun playerJson(
+        videoId: String = "v1",
+        description: String = "About the video",
+        formats: List<String> =
+            listOf(
+                format("https://example.invalid/progressive.mp4", "video/mp4; codecs=avc1.4D401E, mp4a.40.2", 360),
+            ),
+        adaptive: List<String> = emptyList(),
+        hls: String? = null,
+        live: Boolean = false,
+        related: List<FeedItem> = emptyList(),
+        commentContinuation: String? = null,
+    ): String {
+        val hlsField = hls?.let { ""","hlsManifestUrl":"$it"""" } ?: ""
+        val panels =
+            if (commentContinuation == null) {
+                ""
+            } else {
+                ""","engagementPanels":[{"engagementPanelSectionListRenderer":{"content":{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"$commentContinuation"}}}}}}]"""
+            }
+        val relatedJson = related.joinToString(",") { renderer(it, "compactVideoRenderer") }
+        return """{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"$videoId","title":"Video $videoId","author":"Author","channelId":"UC$videoId","lengthSeconds":"120","viewCount":"1000","shortDescription":"$description","isLiveContent":$live,"thumbnail":{"thumbnails":[{"url":"https://example.invalid/$videoId.jpg","width":480}]}},"streamingData":{"formats":[${formats.joinToString(",")}],"adaptiveFormats":[${adaptive.joinToString(",")}]$hlsField},"contents":{"twoColumnWatchNextResults":{"secondaryResults":{"secondaryResults":{"results":[$relatedJson]}}}}$panels}"""
+    }
+
+    private fun commentsJson(
+        continuation: String? = null,
+        vararg entries: Pair<String, String>,
+    ): String {
+        val renderers =
+            entries.joinToString(",") { (id, text) ->
+                """{"commentRenderer":{"commentId":"$id","authorText":{"runs":[{"text":"Alice","navigationEndpoint":{"browseEndpoint":{"browseId":"UC$id"}}}]},"authorThumbnail":{"thumbnails":[{"url":"https://example.invalid/$id.jpg","width":48}]},"contentText":{"simpleText":"$text"},"likeCountText":{"simpleText":"12 likes"},"publishedTimeText":{"simpleText":"2 days ago"},"isPinned":true}}"""
+            }
+        val token =
+            if (continuation == null) {
+                ""
+            } else {
+                """,{"continuationItemRenderer":{"continuationCommand":{"token":"$continuation"}}}"""
+            }
+        return """{"contents":[$renderers$token],"commentCount":"42"}"""
+    }
+
+    private fun channelJson(
+        id: String,
+        name: String,
+        continuation: String? = null,
+    ): String {
+        val token =
+            if (continuation == null) {
+                ""
+            } else {
+                """{"continuationItemRenderer":{"continuationCommand":{"token":"$continuation"}}}"""
+            }
+        return """{"header":{"browseHeaderRenderer":{"title":"$name","avatar":{"thumbnails":[{"url":"https://example.invalid/avatar.jpg","width":176}]},"subscriberCountText":{"simpleText":"1.2K subscribers"},"videoCountText":{"simpleText":"42 videos"},"description":{"simpleText":"Channel description"},"navigationEndpoint":{"browseEndpoint":{"browseId":"$id"}}}},"contents":[$token]}"""
+    }
+
+    private fun cachedEntity(id: String) =
+        VideoEntity(
+            id = id,
+            title = "Cached",
+            channelName = "Author",
+            channelId = "UC$id",
+            thumbnailUrl = "https://example.invalid/$id.jpg",
+            duration = 120L,
+            views = 100L,
+            uploadedAt = "",
+            isLive = false,
         )
 }

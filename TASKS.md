@@ -12,7 +12,7 @@ Legend: ✅ done · ⚠️ partial · ⏳ not started
 | 4 | Compose themes (Material3, Colors, Shapes, Typography) | ✅ |
 | 5 | Hilt setup (app module) | ✅ |
 | 6 | Basic ViewModels for each screen | ✅ |
-| 7 | Retrofit + Moshi + InvidiousService interface | ✅ |
+| 7 | HTTP client + JSON service layer (Retrofit/Moshi, now OkHttp InnerTube client) | ✅ |
 | 8 | Domain models: Video, Channel, Short | ✅ |
 | 9 | VideoRepository interface | ✅ |
 |10| Data layer: Room entity, DAO, DB | ✅ |
@@ -23,14 +23,14 @@ Legend: ✅ done · ⚠️ partial · ⏳ not started
 |15| Build fixed end‑to‑end: AGP 8.2.2, Kotlin 1.9.24, Compose Compiler 1.5.14, compileSdk 34 | ✅ |
 |16| `:data` / `:ui` converted from Kotlin/JVM to Android libraries (they consume AARs) | ✅ |
 |17| AndroidManifest: launcher activity, INTERNET permission, no legacy `package=` attr | ✅ |
-|18| Invidious DTOs aligned with the real payload (`videoId`, `author`, `lengthSeconds`, `liveNow`, thumbnails array, mixed search results) | ✅ |
-|19| Stream URL: broken `/api/v1/streams/{id}` replaced by a chain now split by content type: live → `hlsUrl`, VOD → `formatStreams` → merged adaptive (avc1 ≤720p + `mp4a.40.2`) → `hlsUrl` | ✅ |
-|20| Configurable Invidious instance via `-PinvidiousBaseUrl=` (BuildConfig field) | ✅ |
+|18| Tolerant parsers aligned with the real renderer payloads (`videoRenderer`/`reelItemRenderer`, durations, live badges, continuations) | ✅ |
+|19| Stream URL: derived from a fresh `player` response — live → HLS, VOD → progressive → merged adaptive (avc1 ≤ chosen quality + `mp4a.40.2`) | ✅ |
+|20| Configurable InnerTube clients/endpoints via `-PcontentConfigUrl=` (BuildConfig field, empty = bundled config) | ✅ |
 |21| ktlint wired into the build (`ktlintCheck` / `ktlintFormat`), code formatted | ✅ |
 |22| Unit tests green (7 tests: repository mapping/stream selection + 4 ViewModels) | ✅ |
 |23| `channelId` added to `Video`/`VideoEntity` (Room v2 + `MIGRATION_1_2`), channel navigation uses the `UC…` id | ✅ |
 |24| Domain models for the watch screen: `VideoDetails`, `PlaybackSource` (HLS/progressive/merged), `CommentPage`, `ChannelVideosPage` | ✅ |
-|25| Invidious endpoints: `/videos/{id}` (description, recommendations, streams), `/comments/{id}` (`continuation`, `commentCount`), channel uploads by `continuation` | ✅ |
+|25| InnerTube endpoints: `player` (description, recommendations, streams), `next` (comments by `continuation`), `browse` (channel uploads) | ✅ |
 |26| Watch screen: player on top (16:9, not full screen), title/views/date, channel row, expandable description, comments button, related videos | ✅ |
 |27| Player controls: quality menu (auto / ≤ Np via `DefaultTrackSelector`), fullscreen (landscape, hidden system bars, same player instance), PIP, resume position | ✅ |
 |28| Comments screen: first page, total count, pinned badge, avatars, `continuation` paging | ✅ |
@@ -45,7 +45,7 @@ Legend: ✅ done · ⚠️ partial · ⏳ not started
 |37| Fix: trending is mostly `type=livestream`; the mapper used to drop those payloads → watch screen showed Retry. The `type` whitelist is gone, non-video entries are excluded by the missing `videoId` | ✅ |
 |38| Playback errors (`PlaybackException`) are now shown in the player with a Retry button and written to logcat | ✅ |
 |39| Home feed composer: parallel trending (Default + Gaming) / popular / topic-search sources, dedupe, shuffle, 60-item cap; a single source failure is ignored | ✅ |
-|40| Shorts built from real `/channels/{id}/shorts` of channels discovered by name search: `1..180` s, no live, dedupe, 3 channels per page, curated fallback, reshuffle | ✅ |
+|40| Shorts built from YouTube's native `FEshorts` browse feed with continuation paging: `1..180` s, no live, dedupe, reshuffle | ✅ |
 |41| Home category chips (All/Music/Gaming/Movies/Sports/News/Technology) with in-memory per-category cache and stale-response protection | ✅ |
 |42| Shorts refresh button; empty feed becomes an error with Retry; a page of already-shown ids no longer ends the feed | ✅ |
 |43| Theme: dark/light palettes, system bars, XML splash colours, `values-night`, purple accent | ✅ |
@@ -54,7 +54,7 @@ Legend: ✅ done · ⚠️ partial · ⏳ not started
 |46| Room v3: `watch_history` table, `videos.authorAvatarUrl`, `MIGRATION_2_3`, schemas `2.json`/`3.json` | ✅ |
 |47| Channel avatars mapped from `authorThumbnails` (largest ≤176 px) | ✅ |
 |48| YouTube-style `VideoCard`, `ChannelAvatar`, metadata line; shared across Home/Search/Channel/Watch | ✅ |
-|49| Home Shorts shelf from one lightweight `#shorts` search | ✅ |
+|49| Home Shorts shelf from one lightweight `FEshorts` browse call | ✅ |
 |50| Five-tab shell (Головна, Shorts, Пошук, Підписки, Ви); You/Subscriptions/Notifications/History/About screens; bar hidden on detail screens | ✅ |
 |51| Home redesign: brand top bar, category chips, Shorts shelf, skeletons, empty/error states | ✅ |
 |52| Open the Shorts tab at a specific clip from a shelf tile (`shorts?videoId=…`) | ✅ |
@@ -85,23 +85,23 @@ Tasks 59–68 were executed from [`docs/superpowers/plans/2026-11-20-google-acco
 
 ## Next Steps (planned)
 
-1. **Read‑through caching** – serve the remaining lists (Home, Search, Channel, History) from Room when offline, add `NetworkBoundResource`‑style repository methods. The Shorts feed is already cache-first via Room v4.
-2. **Runtime instance switch** – choose/validate an Invidious base URL in Settings instead of a build flag.
+1. **Offline caching** – Home, Search, Channel and Shorts are already cache-first via Room v5 `feed_cache`; still open: offline History and true offline playback.
+2. **Runtime config switch** – choose/validate a remote content-config URL in Settings instead of a build flag.
 3. **Live stream metadata** – surface `liveNow`, live badges and DVR handling.
 4. **Comment interactions** – replies, likes, sorting.
 5. **UI tests** for navigation flows and player controls (Compose test rule); keep the manual device pass.
-6. **Cleanup** – remove the stale root `src/` folder and decide whether the empty `ui` module is still needed.
-7. **Release** – add `LICENSE` (MIT), signing config, `assembleRelease`, tagged 1.0.0.
+6. **Cleanup** – stale root `src/` removed; decide whether the empty `ui` module is still needed.
+7. **Release** – `assembleRelease` with R8 minification is available; still need `LICENSE` (MIT), signing config and a tagged 1.0.0.
 
 ## Phase 6 checklist
 
-- [ ] Read‑through/offline cache for Home, Search, Channel and History lists.
-- [ ] Runtime Invidious instance picker with validation and a health check.
+- [x] Cache-first Home, Search, Channel and Shorts (Room v5 `feed_cache`); still open: offline History and playback.
+- [ ] Runtime content-config picker with validation and a health check.
 - [ ] Live stream metadata, DVR window and a live badge on the Watch screen.
 - [ ] Comment replies, likes and sorting.
 - [ ] Compose UI tests for the five tabs, login and the player controls.
-- [ ] Remove the stale root `src/` and the empty `ui` module.
-- [ ] Release: LICENSE, signing config, `assembleRelease`, tag.
+- [x] Remove the stale root `src/` (done); still open: the empty `ui` module.
+- [ ] Release: LICENSE, signing config, tag (`assembleRelease` works with R8 minification).
 
 ## Phase 7 checklist — Shorts performance
 
@@ -117,18 +117,32 @@ Executed from [`docs/superpowers/plans/2026-11-26-video-shorts-performance.md`](
 - [x] ✅ **Phase 2 device QA (Media3 preload + 15-swipe stress)**: 15 consecutive swipes, 0 playback errors/crashes, ~4 MB PSS growth. **Merged-audio audibility was NOT separately verified by ear**; only that both Merged URLs (video + audio) are registered for preload.
 - [x] ✅ Full verification: `./gradlew.bat test ktlintCheck assembleDebug --no-daemon` — ktlint clean; debug APK built; **399 JVM у debug (408 разом із release) + 5 instrumented** tests, 0 failures. AND `./gradlew.bat :data:connectedAndroidTest --no-daemon` — **5/5 instrumented PASS** on device.
 
+## Phase 8 — direct InnerTube + release build
+
+Executed from [`docs/superpowers/plans/2026-11-27-direct-innertube.md`](docs/superpowers/plans/2026-11-27-direct-innertube.md); binding design: [`docs/superpowers/specs/2026-11-27-direct-innertube-green-tuber-design.md`](docs/superpowers/specs/2026-11-27-direct-innertube-green-tuber-design.md).
+
+- [x] 69. OkHttp InnerTube transport, remote content config and the client chain (`ANDROID` → `ANDROID_VR` → `IOS`).
+- [x] 70. Tolerant renderer parser with fixtures for unknown/ad nodes and continuations.
+- [x] 71. `VideoRepositoryImpl` serves feeds, search, channels, comments and playback from InnerTube only.
+- [x] 72. Room v5 `feed_cache` with stale-while-revalidate for Home/Search/Channel/Shorts.
+- [x] 73. ViewModel refresh indicators and cache-first UI wiring.
+- [x] 74. Coil memory/disk cache tuning and thumbnail preloading.
+- [x] 75. Media3 media disk cache and fresh-player stream resolution for Watch and Shorts.
+- [x] 76. All references to the removed third-party API are gone from `app`, `data`, `domain`, README.md, SPEC.md and TASKS.md; stale root `src/` deleted; `release` build type with R8 minification.
+- [x] Verification: exact grep silent; `./gradlew.bat test ktlintCheck assembleDebug --no-daemon` — BUILD SUCCESSFUL (287 JVM tests, 0 failures); `./gradlew.bat assembleRelease --no-daemon` — minified release APK built.
+
 > All tasks will be tracked in this markdown and updated as they complete.
 
 ## Recently fixed bugs
 
-* `NetworkModule.BASE_URL` pointed at `invidious.snopyta.org`, dead since 2022 → now a `BuildConfig` field with a working default.
-* `InvidiousService.getStream` declared `String` for a JSON endpoint that does not exist at all → playback URL is derived from the single‑video endpoint.
+* Hardcoded third-party API base URL (dead since 2022) → direct InnerTube `youtubei/v1` with configurable clients/endpoints via `-PcontentConfigUrl=`.
+* A `getStream` endpoint that did not exist at all → playback URL is now derived from a fresh InnerTube `player` response.
 * `./gradlew ktlintCheck` (used by CI) failed with “task not found” → ktlint plugin applied to all modules, `.editorconfig` tuned, sources formatted.
-* DTOs didn’t match the Invidious payload, so every list request failed at parse time with `JsonDataException: Required value 'videoId' missing` → DTOs rewritten, non‑video search results filtered out.
+* Rigid DTOs failed on mixed renderer payloads (`JsonDataException: Required value 'videoId' missing`) → replaced by a tolerant `JsonObject` parser that skips unknown nodes and non-video entries.
 * Missing trailing commas / import order / `BottomNavigation` (Material 2 in a Material 3 app) / missing `getValue`, `clip`, `padding`, `AndroidView` imports → code compiles again.
 * Channel navigation passed the channel *name* to `channel/{id}`, which the API rejects with a 500 → `Video.channelId` is now mapped from `authorId` (Room v1→v2 migration) and every list item navigates with the `UC…` id.
 * Shorts tab was a plain list of mixed search results → now a vertical swipe pager with one autoplaying clip per screen, `1..60s` filter and lazy stream resolution.
-* Shorts showed horizontal videos because `#shorts` search on the instance returns landscape clips → the feed is now built from `/channels/{id}/shorts` of discovered Shorts channels, filtered to `1..180s` and non-live.
+* Shorts showed horizontal videos from a `#shorts` search → the feed now comes from YouTube's native `FEshorts` browse feed, filtered to `1..180s` and non-live.
 * Watch screen used the player as the whole screen → player is now 16:9 at the top with title, channel, description, comments and related videos below.
 * Player had no controls → quality menu (auto/≤Np), fullscreen (landscape, hidden bars, same ExoPlayer instance), PIP and resume position.
 * ViewModels swallowed exceptions and showed empty lists → `UiState` + shared loading/error/empty screens with a retry button.

@@ -48,10 +48,9 @@ import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.LocalPipMode
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
-import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.common.formatCount
+import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.home.HomeScreen
-import com.example.newtube.ui.video.WatchUiState
 
 @Composable
 fun WatchScreen(
@@ -191,68 +190,68 @@ private fun WatchContent(
 
     Column(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
         LazyColumn(modifier = Modifier.weight(1f)) {
-                item {
-                    VideoHeader(video = video)
+            item {
+                VideoHeader(video = video)
+            }
+            item {
+                ChannelRow(
+                    video = video,
+                    onClick = {
+                        if (video.channelId.isNotBlank()) {
+                            navController.navigate("channel/${video.channelId}")
+                        }
+                    },
+                )
+            }
+            item {
+                FilledTonalButton(
+                    onClick = { navController.navigate("comments/$videoId") },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    Text(stringResource(R.string.watch_comments))
                 }
+            }
+            if (details.description.isNotBlank()) {
                 item {
-                    ChannelRow(
-                        video = video,
-                        onClick = {
-                            if (video.channelId.isNotBlank()) {
-                                navController.navigate("channel/${video.channelId}")
-                            }
-                        },
+                    DescriptionBlock(description = details.description)
+                }
+            }
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            }
+            val next = watch.nextVideo
+            if (next != null) {
+                item {
+                    TextButton(
+                        onClick = { navController.navigate("watch/${next.id}") },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    ) {
+                        Text(stringResource(R.string.watch_next, next.title))
+                    }
+                }
+            }
+            if (details.related.isNotEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.watch_related),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
-                item {
-                    FilledTonalButton(
-                        onClick = { navController.navigate("comments/$videoId") },
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    ) {
-                        Text(stringResource(R.string.watch_comments))
-                    }
-                }
-                if (details.description.isNotBlank()) {
-                    item {
-                        DescriptionBlock(description = details.description)
-                    }
-                }
-                item {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                }
-                val next = watch.nextVideo
-                if (next != null) {
-                    item {
-                        TextButton(
-                            onClick = { navController.navigate("watch/${next.id}") },
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        ) {
-                            Text(stringResource(R.string.watch_next, next.title))
-                        }
-                    }
-                }
-                if (details.related.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = stringResource(R.string.watch_related),
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
-                    items(details.related, key = { it.id }) { related ->
-                        VideoCard(
-                            video = related,
-                            onClick = { relatedId -> navController.navigate("watch/$relatedId") },
-                            onChannelClick = { channelId ->
-                                navController.navigate("channel/$channelId")
-                            },
-                            showMetadata = rememberShowMetadata(),
-                        )
-                    }
+                items(details.related, key = { it.id }) { related ->
+                    VideoCard(
+                        video = related,
+                        onClick = { relatedId -> navController.navigate("watch/$relatedId") },
+                        onChannelClick = { channelId ->
+                            navController.navigate("channel/$channelId")
+                        },
+                        showMetadata = rememberShowMetadata(),
+                    )
                 }
             }
         }
     }
+}
 
 private val PLAYER_HEIGHT: Dp = 202.dp
 private val MINI_WIDTH: Dp = 200.dp

@@ -88,7 +88,7 @@ Expected: FAIL, classes missing.
 
 - [ ] **Step 5: Implement `YouTubeContentClient`**
 
-Build `POST` bodies with a `context.client` object using the current `ContentClient` (`clientName`, `clientVersion`, `hl`, `gl`), `contentCheckOk`/`racyCheckOk` for `player`, and the TV user agent only for `TVHTML5`. Read `playabilityStatus.status`; treat anything other than `OK` as a chain failure. Apply OkHttp timeouts in `NetworkModule` (connect 10 s, read 15 s) and remove `InvidiousService`/`provideRetrofit`/`INVIDIOUS_BASE_URL`; add `buildConfigField("String", "CONTENT_CONFIG_URL", ...)` with a bundled default in `data/build.gradle.kts`.
+Build `POST` bodies with a `context.client` object using the current `ContentClient` (`clientName`, `clientVersion`, `hl`, `gl`), `contentCheckOk`/`racyCheckOk` for `player`, and the TV user agent only for `TVHTML5`. Read `playabilityStatus.status`; treat anything other than `OK` as a chain failure. Apply OkHttp timeouts in `NetworkModule` (connect 10 s, read 15 s) and add `buildConfigField("String", "CONTENT_CONFIG_URL", ...)` with a bundled default in `data/build.gradle.kts`. **Keep** `provideInvidiousService`, `provideRetrofit` and `INVIDIOUS_BASE_URL` for now — Task 3 removes them together with the repository that consumes them, so the build stays green after every task.
 
 - [ ] **Step 6: Add and run the device smoke test**
 
@@ -180,7 +180,7 @@ Commit: `refactor: serve all feeds from InnerTube instead of Invidious`
 - Modify: `data/src/main/java/com/example/newtube/database/NewTubeDatabase.kt`
 - Modify: `data/src/main/java/com/example/newtube/di/DatabaseModule.kt`
 - Modify: `domain/src/main/java/com/example/newtube/repository/VideoRepository.kt`
-- Create: `data/src/schemas/com.example.newtube.database.NewTubeDatabase/5.json`
+- Create: `data/schemas/com.example.newtube.database.NewTubeDatabase/5.json`
 - Create: `data/src/androidTest/java/com/example/newtube/database/FeedCacheMigrationTest.kt`
 - Create: `data/src/test/java/com/example/newtube/implementation/FeedCacheRepositoryTest.kt`
 

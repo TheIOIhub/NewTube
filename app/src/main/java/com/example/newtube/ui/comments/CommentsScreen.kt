@@ -22,6 +22,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -56,6 +57,7 @@ fun CommentsScreen(
     }
 
     val uiState by viewModel.uiState.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
     val totalCount = (uiState as? UiState.Success)?.data?.totalCount ?: 0L
 
     Scaffold(
@@ -95,6 +97,15 @@ fun CommentsScreen(
                             onLoadMore = viewModel::loadMore,
                         )
                     }
+            }
+            if (isRefreshing) {
+                LinearProgressIndicator(
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .height(2.dp),
+                )
             }
         }
     }

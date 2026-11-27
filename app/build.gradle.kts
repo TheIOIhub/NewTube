@@ -17,6 +17,15 @@ android {
         versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
     buildFeatures {
         compose = true
     }
@@ -93,6 +102,7 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
 
     // Testing
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.03.00"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("io.mockk:mockk:1.13.10")

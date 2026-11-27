@@ -1,0 +1,142 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "selected": true,
+            "content": {
+              "richGridRenderer": {
+                "contents": [
+                  {
+                    "videoRenderer": {
+                      "videoId": "browse000001",
+                      "title": { "runs": [{ "text": "First " }, { "text": "video" }] },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Fixture Channel",
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "UCfixture000000000000001" } }
+                          }
+                        ]
+                      },
+                      "lengthText": { "simpleText": "12:34" },
+                      "viewCountText": { "simpleText": "1.2M views" },
+                      "publishedTimeText": { "simpleText": "3 days ago" },
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://example.invalid/vi/browse000001/mq.jpg", "width": 168, "height": 94 },
+                          { "url": "https://example.invalid/vi/browse000001/hq.jpg", "width": 480, "height": 360 }
+                        ]
+                      },
+                      "channelThumbnailSupportedRenderers": {
+                        "channelThumbnailWithLinkRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              { "url": "https://example.invalid/avatar/48.jpg", "width": 48 },
+                              { "url": "https://example.invalid/avatar/176.jpg", "width": 176 }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "videoRenderer": {
+                          "videoId": "browse000002",
+                          "title": { "simpleText": "Wrapped in a rich item" },
+                          "ownerText": {
+                            "runs": [
+                              {
+                                "text": "Second Channel",
+                                "navigationEndpoint": { "browseEndpoint": { "browseId": "UCfixture000000000000002" } }
+                              }
+                            ]
+                          },
+                          "lengthText": { "simpleText": "4:10" },
+                          "viewCountText": { "simpleText": "243 views" },
+                          "publishedTimeText": { "simpleText": "1 week ago" },
+                          "thumbnail": {
+                            "thumbnails": [
+                              { "url": "https://example.invalid/vi/browse000002/hq.jpg", "width": 480, "height": 360 }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "compactVideoRenderer": {
+                      "videoId": "browse000003",
+                      "title": { "simpleText": "Compact video" },
+                      "longBylineText": {
+                        "runs": [
+                          {
+                            "text": "Third Channel",
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "UCfixture000000000000003" } }
+                          }
+                        ]
+                      },
+                      "lengthText": { "simpleText": "1:02:03" },
+                      "viewCountText": { "simpleText": "5.5K views" },
+                      "publishedTimeText": { "simpleText": "2 months ago" },
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://example.invalid/vi/browse000003/hq.jpg", "width": 480, "height": 360 }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "reelItemRenderer": {
+                      "videoId": "browse000004",
+                      "headline": { "simpleText": "A short clip" },
+                      "viewCountText": { "simpleText": "9,876 views" },
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://example.invalid/vi/browse000004/oar.jpg", "width": 360, "height": 640 }
+                        ]
+                      },
+                      "navigationEndpoint": { "reelWatchEndpoint": { "videoId": "browse000004" } }
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "browse000005",
+                      "title": { "simpleText": "Live now" },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Live Channel",
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "UCfixture000000000000004" } }
+                          }
+                        ]
+                      },
+                      "viewCountText": { "simpleText": "2,345 watching" },
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://example.invalid/vi/browse000005/hq.jpg", "width": 480, "height": 360 }
+                        ]
+                      },
+                      "badges": [{ "metadataBadgeRenderer": { "style": "LIVE", "label": "LIVE" } }]
+                    }
+                  },
+                  {
+                    "continuationItemRenderer": {
+                      "continuationCommand": {
+                        "token": "BROWSE_CONTINUATION_TOKEN",
+                        "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

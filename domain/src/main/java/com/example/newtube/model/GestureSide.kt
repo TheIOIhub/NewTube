@@ -4,7 +4,7 @@ package com.example.newtube.model
 enum class GestureSide {
     LEFT,
     RIGHT,
-    OFF;
+    OFF, ;
 
     companion object {
         /** Case-sensitive on purpose, matching [com.example.newtube.model.ThemeMode]. */

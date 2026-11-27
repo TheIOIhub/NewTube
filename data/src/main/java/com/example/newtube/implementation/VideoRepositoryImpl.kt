@@ -4,101 +4,164 @@ import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.ChannelEntity
 import com.example.newtube.database.VideoDao
 import com.example.newtube.database.VideoEntity
+import com.example.newtube.implementation.VideoContentFilter.applyContentSettings
+import com.example.newtube.innertube.ContentParser
+import com.example.newtube.innertube.YouTubeContentClient
 import com.example.newtube.model.AccountResult
 import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.Channel
 import com.example.newtube.model.ChannelVideosPage
-import com.example.newtube.model.Comment
 import com.example.newtube.model.CommentPage
+import com.example.newtube.model.FeedSignals
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.PlaybackSource
-import com.example.newtube.model.FeedSignals
 import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
-import com.example.newtube.usecase.rankFeed
-import com.example.newtube.implementation.VideoContentFilter.applyContentSettings
-import com.example.newtube.remote.ChannelDto
-import com.example.newtube.remote.CommentDto
-import com.example.newtube.remote.FormatStreamDto
-import com.example.newtube.remote.InvidiousService
-import com.example.newtube.remote.ThumbnailDto
-import com.example.newtube.remote.VideoDto
 import com.example.newtube.repository.AccountRepository
+import com.example.newtube.repository.FeedKey
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
+import com.example.newtube.usecase.rankFeed
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class VideoRepositoryImpl @Inject constructor(
-    private val service: InvidiousService,
+    private val contentClient: YouTubeContentClient,
     private val dao: VideoDao,
     private val channelDao: ChannelDao,
     private val shortsCache: ShortsCacheRepository,
     private val settingsRepository: SettingsRepository,
     private val historyRepository: HistoryRepository,
     private val accountRepository: AccountRepository,
+    private val feedCache: FeedCacheRepository,
 ) : VideoRepository {
-    /** Serializes channel rotation and the shared "already used" set. */
-    private val shortsChannelMutex = Mutex()
-    private val usedShortsChannels = mutableSetOf<String>()
+    /** YouTube's own browse token for the next Shorts page. */
+    @Volatile
+    private var shortsContinuation: String? = null
 
-    private data class ContentPrefs(val region: String, val language: String)
+    /** Search continuations are per query: another query must not steal the token. */
+    private val searchContinuations = ConcurrentHashMap<String, String>()
 
-    private suspend fun contentPrefs(): ContentPrefs =
-        settingsRepository.settings.first().let { ContentPrefs(it.contentCountry, it.contentLanguage) }
-
-    /** Called when the user changes content country/language so caches do not stay stale. */
+    /** Called when the user changes content preferences so cursors do not stay stale. */
     override suspend fun clearFeedCaches() {
-        shortsChannelMutex.withLock { usedShortsChannels.clear() }
+        shortsContinuation = null
+        searchContinuations.clear()
         shortsCache.clearKnownChannelIds()
         shortsCache.clearFeedCache()
+        feedCache.clearAll()
     }
 
-    override suspend fun getTrending(): List<Video> =
-        withContext(Dispatchers.IO) {
-            val prefs = contentPrefs()
-            service.getTrending(region = prefs.region, hl = prefs.language).toDomainVideos()
+    /**
+     * Cached JSON is parsed and normalised on every emission so the UI sees
+     * stale data in exactly the same shape as a refreshed feed.
+     */
+    override fun observeFeed(key: FeedKey): Flow<List<Video>> =
+        feedCache
+            .observe(key.cacheKey())
+            .map { json ->
+                val items = json?.let(::decodeCachedFeed).orEmpty()
+                items.forFeedKey(key)
+            }
+            .flowOn(Dispatchers.Default)
+
+    /** A failed or unusable refresh never overwrites the working cached feed. */
+    override suspend fun refreshFeed(key: FeedKey): Result<List<Video>> =
+        runCatching {
+            val json = withContext(Dispatchers.IO) { key.fetchJson() }
+            val items = ContentParser.parseFeed(json).items.forFeedKey(key)
+            // Only a usable parsed feed may replace the cached page: a nonblank
+            // bot-check page or an exhausted search token must keep the old feed.
+            if (items.isNotEmpty()) feedCache.put(key.cacheKey(), items.toCacheJson())
+            items
         }
 
     /**
-     * Builds a Home feed from several Invidious sources, fetched in parallel.
-     * A failing source is skipped so one flaky endpoint cannot blank the whole
-     * screen; only when every source failed does the error propagate.
+     * One normalisation path for cached and freshly fetched feeds: content
+     * filtering + metadata persistence (and the same limit/ranking the old
+     * suspend feed methods applied) must not depend on which path produced it.
      */
+    private suspend fun List<Video>.forFeedKey(key: FeedKey): List<Video> =
+        when (key) {
+            is FeedKey.Home -> {
+                val limited = withoutShorts().toFilteredVideos().take(HOME_FEED_LIMIT)
+                if (key.category == HomeCategory.FOR_YOU) rankForYou(limited) else limited
+            }
+            is FeedKey.Search -> toFilteredVideos().take(HOME_FEED_LIMIT)
+            is FeedKey.Channel -> toFilteredVideos()
+            FeedKey.Shorts ->
+                filter { it.duration in 0L..SHORTS_MAX_SECONDS && !it.isLive }
+                    .toFilteredVideos()
+                    .take(SHORTS_PER_PAGE)
+            FeedKey.Notifications -> toFilteredVideos()
+        }
+
+    private fun FeedKey.cacheKey(): String =
+        when (this) {
+            is FeedKey.Home -> "home:${category.name}"
+            FeedKey.Shorts -> "shorts"
+            is FeedKey.Search -> "search:$query:$page"
+            is FeedKey.Channel -> "channel:$channelId"
+            FeedKey.Notifications -> "notifications"
+        }
+
+    /** Every branch is one InnerTube response, kept verbatim for the cache. */
+    private suspend fun FeedKey.fetchJson(): String =
+        when (this) {
+            is FeedKey.Home -> contentClient.search(category.searchQuery(), null, null)
+            FeedKey.Shorts -> contentClient.search(SHORTS_QUERY, null, null)
+            is FeedKey.Search -> searchJson(query, page)
+            is FeedKey.Channel -> contentClient.browse(channelId)
+            FeedKey.Notifications -> contentClient.browse(BROWSE_NOTIFICATIONS)
+        }
+
+    override suspend fun getTrending(): List<Video> =
+        withContext(Dispatchers.IO) {
+            ContentParser.parseFeed(contentClient.search(HOME_SEARCH_QUERY, null, null))
+                .items
+                .withoutShorts()
+                .toFilteredVideos()
+        }
+
+    /** One native YouTube browse feed per tab; no topic-mix searches. */
     override suspend fun getHomeFeed(category: HomeCategory): List<Video> =
         withContext(Dispatchers.IO) {
-            val prefs = contentPrefs()
-            val results =
-                coroutineScope {
-                    category.feedSources().map { source -> async { source.load(prefs) } }.awaitAll()
-                }
-            if (results.all { it.isFailure }) {
-                throw results.first().exceptionOrNull() ?: IllegalStateException("No feed sources")
-            }
-            results
-                .mapNotNull { it.getOrNull() }
-                .flatten()
-                .toDomainVideos()
-                .distinctBy { it.id }
-                .shuffled()
+            ContentParser.parseFeed(contentClient.search(category.searchQuery(), null, null))
+                .items
+                .withoutShorts()
+                .toFilteredVideos()
                 .take(HOME_FEED_LIMIT)
         }
 
-    override suspend fun getForYouFeed(): List<Video> =
+    override suspend fun getForYouFeed(): List<Video> = rankForYou(getHomeFeed(HomeCategory.ALL))
+
+    /** Shared by the direct feed and the cache-backed Home(FOR_YOU) path. */
+    private suspend fun rankForYou(base: List<Video>): List<Video> =
         withContext(Dispatchers.IO) {
-            val base = getHomeFeed(HomeCategory.ALL)
             val settings = settingsRepository.settings.first()
             val history = historyRepository.observeLocal(HISTORY_SIGNAL_LIMIT).first()
             val now = System.currentTimeMillis()
@@ -124,335 +187,269 @@ class VideoRepositoryImpl @Inject constructor(
             rankFeed(base, FeedSignals(affinity, subscriptions, settings.contentLanguage))
         }
 
-    private sealed interface FeedSource {
-        data class Trending(val type: String) : FeedSource
-
-        data object Popular : FeedSource
-
-        data class Search(val query: String) : FeedSource
-    }
-
-    private suspend fun FeedSource.load(prefs: ContentPrefs): Result<List<VideoDto>> =
-        runCatching {
-            when (this) {
-                is FeedSource.Trending ->
-                    service.getTrending(type = type, region = prefs.region, hl = prefs.language)
-                FeedSource.Popular -> service.getPopular()
-                is FeedSource.Search ->
-                    service.searchVideos(query, region = prefs.region, hl = prefs.language)
-            }
-        }
-
-    private fun HomeCategory.feedSources(): List<FeedSource> =
+    private fun HomeCategory.searchQuery(): String =
         when (this) {
-            HomeCategory.FOR_YOU -> listOf(FeedSource.Trending("Default"))
-            HomeCategory.ALL ->
-                listOf(
-                    FeedSource.Trending("Default"),
-                    FeedSource.Trending("Gaming"),
-                    FeedSource.Popular,
-                ) + ALL_TOPIC_QUERIES.shuffled().take(ALL_TOPIC_QUERY_COUNT).map(FeedSource::Search)
-            HomeCategory.MUSIC -> pickQueries(MUSIC_QUERIES)
-            HomeCategory.GAMING -> listOf(FeedSource.Trending("Gaming")) + pickQueries(GAMING_QUERIES)
-            HomeCategory.MOVIES -> pickQueries(MOVIE_QUERIES)
-            HomeCategory.SPORTS -> pickQueries(SPORTS_QUERIES)
-            HomeCategory.NEWS -> pickQueries(NEWS_QUERIES)
-            HomeCategory.TECHNOLOGY -> pickQueries(TECH_QUERIES)
+            HomeCategory.FOR_YOU, HomeCategory.ALL -> HOME_SEARCH_QUERY
+            HomeCategory.MUSIC -> "музика"
+            HomeCategory.GAMING -> "ігри"
+            HomeCategory.MOVIES -> "фільми"
+            HomeCategory.SPORTS -> "спорт"
+            HomeCategory.NEWS -> "новини"
+            HomeCategory.TECHNOLOGY -> "технології"
         }
-
-    private fun pickQueries(pool: List<String>): List<FeedSource> =
-        pool.shuffled().take(TOPIC_QUERY_COUNT).map(FeedSource::Search)
 
     /**
-     * Paged loads for the Shorts mediator: every call advances the channel
-     * rotation, so consecutive `page` values yield a fresh batch without a
-     * separate continuation API.
+     * Paged loads for the Shorts mediator. YouTube returns the reel shelf with
+     * a continuation token, so every page is exactly one browse call.
      */
     override suspend fun getShorts(page: Int): List<Video> =
         withContext(Dispatchers.IO) {
-            // Invidious has no Shorts feed and its search ignores YouTube's
-            // Shorts shelf, so the only reliable source is the per-channel
-            // `/shorts` endpoint. Known channel ids are reused first; channels
-            // are discovered only when no usable cached ids are left.
-            val first = shortsChannelMutex.withLock { nextShortsChannels() }
-            var results = fetchShorts(first.ids)
-            if (first.fromCache && results.isNotEmpty() && results.all { it.second.isFailure }) {
-                // Every cached channel failed: discover fresh ones and mix in
-                // the curated fallback instead of repeating the failing set.
-                val retry = shortsChannelMutex.withLock { nextShortsChannels(forceDiscovery = true) }
-                results = fetchShorts(retry.ids)
-            }
-            if (results.isNotEmpty() && results.all { it.second.isFailure }) {
-                throw results.first().second.exceptionOrNull()
-                    ?: IllegalStateException("No shorts channels")
-            }
-
-            val capped =
-                results
-                    .mapNotNull { (_, result) -> result.getOrNull()?.videos }
-                    .flatMap { videos ->
-                        videos
-                            .filter { it.lengthSeconds in 1..SHORTS_MAX_SECONDS && !it.liveNow }
-                            .distinctBy { it.videoId }
-                            .shuffled()
-                            .take(PER_CHANNEL_TAKE)
-                    }
-                    .shuffled()
-
-            capped
-                .toDomainVideos()
-                .distinctBy { it.id }
-                .shuffled()
+            val feed =
+                ContentParser.parseFeed(
+                    contentClient.search(SHORTS_QUERY, null, if (page > 1) shortsContinuation else null),
+                )
+            shortsContinuation = feed.continuation
+            // reelItemRenderer carries no lengthText, so 0 means "unknown", not "invalid".
+            feed.items
+                .filter { it.duration in 0L..SHORTS_MAX_SECONDS && !it.isLive }
+                .toFilteredVideos()
                 .take(SHORTS_PER_PAGE)
         }
 
+    /** One lightweight browse for the Home reel shelf; does not move the Shorts cursor. */
     override suspend fun getShortsShelf(limit: Int): List<Video> =
         withContext(Dispatchers.IO) {
-            val prefs = contentPrefs()
-            service
-                .getShorts(page = 1, region = prefs.region, hl = prefs.language)
-                .asSequence()
-                .filter { it.lengthSeconds in 1..SHORTS_SHELF_MAX_SECONDS && !it.liveNow }
-                .distinctBy { it.videoId }
-                .shuffled()
+            ContentParser
+                .parseFeed(contentClient.search(SHORTS_QUERY, null, null))
+                .items
+                .filter { it.duration in 0L..SHORTS_SHELF_MAX_SECONDS && !it.isLive }
+                .toFilteredVideos()
                 .take(limit.coerceAtLeast(0))
-                .toList()
-                .toDomainVideos()
         }
 
     /**
-     * Keeps the selected channel id next to its result so the per-channel cap
-     * never depends on the payload's authorId.
+     * Page 1 starts a fresh query; later pages reuse the token returned with
+     * the previous page. Without a token the caller sees an empty page, which
+     * tells the mediator to stop instead of re-appending the same videos.
      */
-    private suspend fun fetchShorts(selected: List<String>) =
-        coroutineScope {
-            selected.map { channelId ->
-                async { channelId to runCatching { service.getChannelShorts(channelId) } }
-            }.awaitAll()
-        }
-
-    private data class ShortsChannelSelection(
-        val ids: List<String>,
-        val fromCache: Boolean,
-    )
-
-    /** Must be called with [shortsChannelMutex] held. */
-    private suspend fun nextShortsChannels(forceDiscovery: Boolean = false): ShortsChannelSelection {
-        val known = shortsCache.knownChannelIds()
-        if (!forceDiscovery && known.isNotEmpty()) {
-            val fresh = known.filterNot { it in usedShortsChannels }
-            // All known ids have been used: clear and start a new cycle so the
-            // feed keeps rotating instead of stalling.
-            val pool =
-                if (fresh.isEmpty()) {
-                    usedShortsChannels.clear()
-                    known.toList()
-                } else {
-                    fresh
-                }
-            val chosen = pool.shuffled().take(SHORTS_CHANNELS_PER_PAGE)
-            usedShortsChannels += chosen
-            return ShortsChannelSelection(chosen, fromCache = true)
-        }
-
-        val discoveredWithBucket =
-            runCatching {
-                coroutineScope {
-                    (UKRAINIAN_SHORTS_CHANNEL_QUERIES.shuffled() +
-                            SHORTS_CHANNEL_QUERIES.shuffled())
-                        .distinct()
-                        .take(SHORTS_DISCOVERY_QUERIES_PER_PAGE)
-                        .map { query ->
-                            async {
-                                runCatching {
-                                    query to
-                                        service
-                                            .searchChannels(
-                                                query,
-                                                region = contentPrefs().region,
-                                                hl = contentPrefs().language,
-                                            ).map { it.authorId }
-                                }
-                            }
-                        }.awaitAll()
-                        .mapNotNull { it.getOrNull() }
-                        .flatMap { (query, ids) -> ids.map { query to it } }
-                }
-            }.getOrDefault(emptyList())
-
-        val discovered = discoveredWithBucket.map { it.second }
-        if (discovered.isNotEmpty()) {
-            // Persist discovered ids only; the curated fallback is never cached.
-            shortsCache.rememberChannelIds(
-                (known + discovered).distinct().take(MAX_KNOWN_SHORTS_CHANNELS).toSet(),
-            )
-        }
-        // Group by the query bucket that surfaced each channel; cap how many
-        // channels any single bucket can contribute.
-        val bucketById = discoveredWithBucket.groupBy({ it.first }, { it.second })
-        val freshByBucket =
-            bucketById.mapValues { (_, ids) ->
-                ids.distinct().filterNot { it in usedShortsChannels }.shuffled()
-            }
-
-        val picked = mutableListOf<String>()
-        for (bucket in bucketById.keys.shuffled()) {
-            if (picked.size >= SHORTS_CHANNELS_PER_PAGE) break
-            val candidates = freshByBucket.getValue(bucket).filterNot { it in picked }
-            picked += candidates.take(MAX_CHANNELS_PER_QUERY_BUCKET)
-        }
-        if (picked.size < SHORTS_CHANNELS_PER_PAGE) {
-            val remaining =
-                discovered
-                    .distinct()
-                    .filterNot { it in usedShortsChannels || it in picked }
-                    .shuffled()
-            picked += remaining.take(SHORTS_CHANNELS_PER_PAGE - picked.size)
-        }
-
-        val chosen =
-            if (picked.isEmpty()) {
-                // Every discovered channel has been used; reset and mix the
-                // discovery pool with the curated list so the feed never stalls.
-                usedShortsChannels.clear()
-                (discovered.distinct() + FALLBACK_SHORTS_CHANNELS)
-                    .distinct()
-                    .shuffled()
-                    .take(SHORTS_CHANNELS_PER_PAGE)
-            } else if (picked.size < SHORTS_CHANNELS_PER_PAGE) {
-                val fillPool =
-                    (discovered.distinct() + FALLBACK_SHORTS_CHANNELS)
-                        .distinct()
-                        .filterNot { it in picked || it in usedShortsChannels }
-                        .shuffled()
-                picked + fillPool.take(SHORTS_CHANNELS_PER_PAGE - picked.size)
-            } else {
-                picked
-            }
-        usedShortsChannels += chosen
-        return ShortsChannelSelection(chosen, fromCache = false)
-    }
-
-    override suspend fun search(query: String, page: Int): List<Video> =
+    override suspend fun search(
+        query: String,
+        page: Int,
+    ): List<Video> =
         withContext(Dispatchers.IO) {
-            val prefs = contentPrefs()
-            service.searchVideos(query, page = page, region = prefs.region, hl = prefs.language).toDomainVideos()
+            searchJson(query, page).toFilteredVideos().take(HOME_FEED_LIMIT)
         }
+
+    /** Shared by search() and refreshFeed() so both use the same page cursor. */
+    private suspend fun searchJson(
+        query: String,
+        page: Int,
+    ): String {
+        val continuation =
+            if (page <= 1) {
+                // A fresh page 1 invalidates only this query's cursor.
+                searchContinuations.remove(query)
+                null
+            } else {
+                searchContinuations[query] ?: return ""
+            }
+        val response = contentClient.search(query, null, continuation)
+        val next = ContentParser.parseFeed(response).continuation?.takeIf { it.isNotBlank() }
+        if (next != null) {
+            searchContinuations[query] = next
+        } else {
+            searchContinuations.remove(query)
+        }
+        return response
+    }
 
     override suspend fun searchSuggestions(query: String): List<String> =
         withContext(Dispatchers.IO) {
             if (query.isBlank()) {
                 emptyList()
             } else {
-                runCatching {
-                    val prefs = contentPrefs()
-                    service.getSearchSuggestions(query, region = prefs.region, hl = prefs.language).suggestions
-                }.getOrDefault(emptyList())
+                runCatching { contentClient.suggestions(query) }.getOrDefault(emptyList())
             }
         }
 
     override suspend fun getVideoById(videoId: String): Video =
         withContext(Dispatchers.IO) {
-            dao.getVideoById(videoId)?.toDomain()
-                ?: service.getVideoDetails(videoId, region = contentPrefs().region, hl = contentPrefs().language).toDomainVideo()
+            dao.getVideoById(videoId)?.toDomain() ?: loadVideo(videoId)
         }
 
-    override suspend fun getVideoDetails(videoId: String, maxHeight: Int): VideoDetails =
+    private suspend fun loadVideo(videoId: String): Video {
+        val parsed =
+            ContentParser.parseVideoDetails(contentClient.player(videoId))
+                ?: throw IllegalStateException("Unexpected payload for video $videoId")
+        return listOf(parsed.video).persistVideos().first()
+    }
+
+    /**
+     * Playback always comes from a fresh player response: signed stream URLs
+     * expire, so cached Room metadata is never used to resolve a source.
+     */
+    override suspend fun getVideoDetails(
+        videoId: String,
+        maxHeight: Int,
+    ): VideoDetails =
         withContext(Dispatchers.IO) {
-            val prefs = contentPrefs()
-            val dto = service.getVideoDetails(videoId, region = prefs.region, hl = prefs.language)
-            val video = dto.toDomainVideo()
-            val playback =
-                dto.toPlaybackSource(maxHeight)
-                    ?: throw IllegalStateException("No playable stream returned for video $videoId")
+            val response = contentClient.player(videoId)
+            val parsed =
+                ContentParser.parseVideoDetails(response)
+                    ?: throw IllegalStateException("Unexpected payload for video $videoId")
+            val playback = resolvePlayback(response, maxHeight, parsed.video.isLive) ?: parsed.playback
+            val related = parsed.related.toFilteredVideos()
+            val video = listOf(parsed.video).persistVideos().first()
             VideoDetails(
                 video = video,
-                description = dto.description.trim(),
-                related =
-                    dto.recommendedVideos
-                        .applyContentSettings(settingsRepository.settings.first())
-                        .mapNotNull { it.toDomainOrNull() },
+                description = parsed.description,
+                related = related,
                 playback = playback,
             )
         }
 
-    override suspend fun getChannelVideos(channelId: String, continuation: String?): ChannelVideosPage =
+    override suspend fun getChannelVideos(
+        channelId: String,
+        continuation: String?,
+    ): ChannelVideosPage =
         withContext(Dispatchers.IO) {
-            val response = service.getChannelVideos(channelId, continuation)
+            val feed = ContentParser.parseFeed(contentClient.browse(channelId, continuation))
             ChannelVideosPage(
-                videos = response.videos.toDomainVideos(),
-                continuation = response.continuation,
+                videos = feed.items.toFilteredVideos(),
+                continuation = feed.continuation?.takeIf { it.isNotBlank() },
             )
         }
 
     override suspend fun getChannelDetails(channelId: String): Channel =
         withContext(Dispatchers.IO) {
             channelDao.getChannelById(channelId)?.toDomain()
-                ?: service
-                    .getChannelDetails(channelId)
+                ?: ContentParser
+                    .parseChannel(contentClient.browse(channelId))
+                    .channel
                     .toEntity()
-                    .apply { channelDao.insert(this) }
-                    .toDomain()
+                    .let { entity ->
+                        channelDao.insert(entity)
+                        entity.toDomain()
+                    }
         }
 
-    override suspend fun getComments(videoId: String, continuation: String?): CommentPage =
+    override suspend fun getComments(
+        videoId: String,
+        continuation: String?,
+    ): CommentPage =
         withContext(Dispatchers.IO) {
-            val response = service.getComments(videoId, continuation)
+            val token =
+                continuation?.takeIf { it.isNotBlank() }
+                    ?: ContentParser.parseComments(contentClient.player(videoId)).continuation
+                    ?: throw IllegalStateException("No comments continuation for video $videoId")
+            val page = ContentParser.parseComments(contentClient.next(token))
             CommentPage(
-                comments = response.comments.mapNotNull { it.toDomainOrNull() },
-                continuation = response.continuation?.takeIf { it.isNotBlank() },
-                totalCount = response.commentCount,
+                comments = page.comments,
+                continuation = page.continuation?.takeIf { it.isNotBlank() },
+                totalCount = page.totalCount,
             )
         }
 
-    private suspend fun List<VideoDto>.toDomainVideos(): List<Video> {
-        val entities =
-            applyContentSettings(settingsRepository.settings.first()).mapNotNull { it.toEntityOrNull() }
-        dao.insertAll(entities)
-        return entities.map { it.toDomain() }
-    }
-
-    private suspend fun VideoDto.toDomainVideo(): Video {
-        val entity =
-            toEntityOrNull() ?: throw IllegalStateException("Unexpected payload for video $videoId")
-        dao.insertAll(listOf(entity))
-        return entity.toDomain()
-    }
-
-    private fun VideoDto.toDomainOrNull(): Video? = toEntityOrNull()?.toDomain()
-
     /**
-     * Largest avatar at or below 176 px; anything bigger is a last resort.
+     * YouTube mixes reels into ordinary search results, and the Home feed is
+     * search-backed now. Shorts have their own shelf and tab, so keep them out
+     * of Home; live clips are allowed even though their duration is unknown.
      */
-    private fun List<ThumbnailDto>.avatarUrl(): String {
-        val usable = filter { it.url.isNotBlank() }
-        val preferred = usable.filter { it.width in 1..176 }
-        return (preferred.maxByOrNull { it.width } ?: usable.maxByOrNull { it.width })?.url.orEmpty()
+    private fun List<Video>.withoutShorts(): List<Video> =
+        filter { it.isLive || it.duration > SHORTS_MAX_SECONDS }
+
+    /** Applies the local content filters and writes only metadata to Room. */
+    private suspend fun String.toFilteredVideos(): List<Video> =
+        ContentParser.parseFeed(this).items.toFilteredVideos()
+
+    private suspend fun List<Video>.toFilteredVideos(): List<Video> =
+        applyContentSettings(settingsRepository.settings.first()).persistVideos()
+
+    private suspend fun List<Video>.persistVideos(): List<Video> {
+        val unique = distinctBy { it.id }
+        if (unique.isNotEmpty()) {
+            dao.insertAll(unique.map { it.toEntity() })
+        }
+        return unique
     }
 
     /**
-     * Feed and search responses are mixed: channels and playlists carry no
-     * `videoId` and are skipped. The `type` field is deliberately not used as a
-     * filter: Invidious labels live broadcasts `livestream` (not `video`), and
-     * recommendations come without any `type` at all, so a whitelist would drop
-     * perfectly playable entries.
+     * Task 2's parser prefers the highest muxed progressive track. The quality
+     * cap is applied here instead, on the raw player response: an adaptive
+     * H.264/AV1 video at or below the cap plus an audio track is preferred, with
+     * progressive and HLS as fallbacks. Ad breaks are never read.
      */
-    private fun VideoDto.toEntityOrNull(): VideoEntity? {
-        val id = videoId
-        if (id.isNullOrBlank()) return null
-        return VideoEntity(
+    private fun resolvePlayback(
+        json: String,
+        maxHeight: Int,
+        live: Boolean,
+    ): PlaybackSource? {
+        val root = runCatching { Json.parseToJsonElement(json) }.getOrNull() as? JsonObject ?: return null
+        val streaming = root["streamingData"] as? JsonObject ?: return null
+        val hls = streaming.string("hlsManifestUrl")?.takeIf { it.isNotBlank() }
+        if (live && hls != null) return PlaybackSource.Hls(hls)
+
+        val cap = maxHeight.takeIf { it > 0 } ?: AppSettings.DEFAULT_QUALITY
+        val adaptive = streaming.formats("adaptiveFormats")
+        val cappedVideo =
+            adaptive
+                .filter { it.isPlayableVideo() && it.height() <= cap }
+                .sortedWith(compareByDescending<JsonObject> { it.codecRank() }.thenByDescending { it.height() })
+                .firstOrNull()
+        val audio = adaptive.filter { it.isPlayableAudio() }
+        if (cappedVideo != null && audio.isNotEmpty()) {
+            val urls = audio.map { checkNotNull(it.string("url")) }.distinct()
+            return PlaybackSource.Merged(checkNotNull(cappedVideo.string("url")), urls.first(), urls.drop(1))
+        }
+
+        val progressive =
+            streaming
+                .formats("formats")
+                .filter { it.isPlayableVideo() && it.height() <= cap }
+                .maxByOrNull { it.height() }
+        if (progressive != null) {
+            return PlaybackSource.Progressive(checkNotNull(progressive.string("url")))
+        }
+        return hls?.let(PlaybackSource::Hls)
+    }
+
+    private fun JsonObject.formats(key: String): List<JsonObject> =
+        (this[key] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+
+    private fun JsonObject.isPlayableVideo(): Boolean =
+        string("mimeType")?.startsWith("video/", ignoreCase = true) == true && !string("url").isNullOrBlank()
+
+    private fun JsonObject.isPlayableAudio(): Boolean =
+        string("mimeType")?.startsWith("audio/", ignoreCase = true) == true && !string("url").isNullOrBlank()
+
+    /** H.264 first, then AV1, then other codecs; unknown resolutions lose to capped ones. */
+    private fun JsonObject.codecRank(): Int =
+        when {
+            string("mimeType")?.contains("avc1", ignoreCase = true) == true -> 3
+            string("mimeType")?.contains("av01", ignoreCase = true) == true -> 2
+            else -> 1
+        }
+
+    private fun JsonObject.height(): Int =
+        int("height") ?: string("qualityLabel")?.takeWhile { it.isDigit() }?.toIntOrNull() ?: Int.MAX_VALUE
+
+    private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+
+    private fun JsonObject.int(key: String): Int? = (this[key] as? JsonPrimitive)?.intOrNull
+
+    private fun Video.toEntity(): VideoEntity =
+        VideoEntity(
             id = id,
             title = title,
-            channelName = author,
-            channelId = authorId,
-            authorAvatarUrl = authorThumbnails.avatarUrl(),
-            thumbnailUrl = videoThumbnails.maxByOrNull { it.width }?.url.orEmpty(),
-            duration = lengthSeconds,
-            views = viewCount,
-            uploadedAt = publishedText,
-            isLive = liveNow,
+            channelName = channelName,
+            channelId = channelId,
+            authorAvatarUrl = authorAvatarUrl,
+            thumbnailUrl = thumbnailUrl,
+            duration = duration,
+            views = views,
+            uploadedAt = uploadedAt,
+            isLive = isLive,
         )
-    }
 
     private fun VideoEntity.toDomain(): Video =
         Video(
@@ -468,114 +465,13 @@ class VideoRepositoryImpl @Inject constructor(
             isLive = isLive,
         )
 
-    /**
-     * Picks the stream to hand to ExoPlayer.
-     *
-     * Live broadcasts must go through HLS: that is the only source Invidious
-     * exposes for them, and live HLS segments are served fine.
-     *
-     * VOD is the opposite: on the default instance the HLS variant playlists
-     * point at YouTube slice URLs (`/govp/slices=…`) that answer 403, while the
-     * adaptive DASH tracks (`videoplayback?…&range=`) answer 206. So for VOD the
-     * order is: a progressive `formatStreams` entry within the quality cap
-     * (already contains audio), then a merged adaptive pair (one video + one
-     * audio track), then a progressive track above the cap as a last resort,
-     * and only then the HLS manifest.
-     */
-    private fun VideoDto.toPlaybackSource(maxHeight: Int): PlaybackSource? {
-        val cap = maxHeight.takeIf { it > 0 } ?: AppSettings.DEFAULT_QUALITY
-        val isLive = liveNow || type == "livestream"
-        if (isLive) {
-            hlsUrl?.takeIf { it.isNotBlank() }?.let { return PlaybackSource.Hls(it) }
-        }
-
-        formatStreams.firstPlayableUrl(cap)?.let { return PlaybackSource.Progressive(it) }
-
-        val videoUrl = adaptiveFormats.bestVideoUrl(cap)
-        val audioUrl = adaptiveFormats.bestAudioUrl()
-        if (videoUrl != null && audioUrl != null) {
-            val alternatives =
-                adaptiveFormats
-                    .filter { format ->
-                        format.type?.startsWith("audio/") == true &&
-                            !format.language.isNullOrBlank() &&
-                            !format.url.isNullOrBlank()
-                    }.mapNotNull { it.url }
-                    .distinct()
-            return PlaybackSource.Merged(videoUrl, audioUrl, alternatives)
-        }
-
-        // Last resort: accept a progressive track above the cap, then HLS.
-        formatStreams.firstPlayableUrl()?.let { return PlaybackSource.Progressive(it) }
-        return hlsUrl?.takeIf { it.isNotBlank() }?.let { PlaybackSource.Hls(it) }
-    }
-
-    /**
-     * Prefers a hardware-friendly `avc1` track at or below [maxHeight] and falls
-     * back to the smallest available resolution when everything is above the
-     * cap. `av01` entries are only used when no `avc1` track exists, since
-     * hardware decoding depends on the device.
-     */
-    private fun List<FormatStreamDto>.bestVideoUrl(maxHeight: Int): String? {
-        val candidates =
-            filter {
-                !it.url.isNullOrBlank() && it.type?.startsWith("video/mp4") == true
-            }
-        if (candidates.isEmpty()) return null
-
-        val capped = candidates.filter { (it.heightOrNull() ?: Int.MAX_VALUE) <= maxHeight }
-        val pool = capped.ifEmpty { candidates }
-        val byQuality =
-            if (capped.isNotEmpty()) {
-                compareByDescending<FormatStreamDto> { it.isAvc() }
-                    .thenByDescending { it.heightOrNull() ?: 0 }
-            } else {
-                compareByDescending<FormatStreamDto> { it.isAvc() }
-                    .thenBy { it.heightOrNull() ?: Int.MAX_VALUE }
-            }
-        return pool.sortedWith(byQuality).firstOrNull()?.url
-    }
-
-    private fun List<FormatStreamDto>.bestAudioUrl(): String? =
-        filter { !it.url.isNullOrBlank() && it.type?.startsWith("audio/mp4") == true }
-            .sortedWith(
-                compareByDescending<FormatStreamDto> { it.type?.contains("mp4a.40.2") == true }
-                    .thenByDescending { it.bitrate?.toIntOrNull() ?: 0 },
-            ).firstOrNull()
-            ?.url
-
-    private fun FormatStreamDto.heightOrNull(): Int? = qualityLabel?.takeWhile { it.isDigit() }?.toIntOrNull()
-
-    private fun FormatStreamDto.isAvc(): Boolean = type?.contains("avc1") == true
-
-    private fun List<FormatStreamDto>.firstPlayableUrl(maxHeight: Int? = null): String? =
-        firstOrNull { format ->
-            val height = format.heightOrNull()
-            !format.url.isNullOrBlank() &&
-                (maxHeight == null || height == null || height <= maxHeight)
-        }?.url
-
-    private fun CommentDto.toDomainOrNull(): Comment? {
-        val id = commentId ?: return null
-        return Comment(
-            id = id,
-            author = author,
-            authorChannelId = authorId.orEmpty(),
-            authorAvatarUrl = authorThumbnail,
-            content = content,
-            likeCount = likeCount,
-            publishedText = publishedText,
-            isPinned = isPinned,
-        )
-    }
-
-    private fun ChannelDto.toEntity(): ChannelEntity =
+    private fun Channel.toEntity(): ChannelEntity =
         ChannelEntity(
-            id = authorId,
-            name = author,
-            avatarUrl = authorThumbnails.lastOrNull()?.url.orEmpty(),
-            subscriberCount = subCount,
-            totalVideos = latestVideos.size,
+            id = id,
+            name = name,
+            avatarUrl = avatarUrl,
+            subscriberCount = subscriberCount,
+            totalVideos = totalVideos,
             description = description,
         )
 
@@ -589,89 +485,59 @@ class VideoRepositoryImpl @Inject constructor(
             description = description,
         )
 
+    /**
+     * Room's CursorWindow rejects rows above ~2 MB, and a raw InnerTube feed
+     * response can exceed that. Cache only the normalised video metadata.
+     */
+    private fun List<Video>.toCacheJson(): String =
+        buildJsonArray {
+            this@toCacheJson.forEach { video ->
+                add(
+                    buildJsonObject {
+                        put("id", video.id)
+                        put("title", video.title)
+                        put("channelName", video.channelName)
+                        put("channelId", video.channelId)
+                        put("thumbnailUrl", video.thumbnailUrl)
+                        put("duration", video.duration)
+                        put("views", video.views)
+                        put("uploadedAt", video.uploadedAt)
+                        put("isLive", video.isLive)
+                        put("authorAvatarUrl", video.authorAvatarUrl)
+                    },
+                )
+            }
+        }.toString()
+
+    private fun decodeCachedFeed(json: String): List<Video> =
+        runCatching {
+            Json.parseToJsonElement(json).jsonArray.mapNotNull { element ->
+                val obj = element.jsonObject
+                val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                Video(
+                    id = id,
+                    title = obj["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    channelName = obj["channelName"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    channelId = obj["channelId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    thumbnailUrl = obj["thumbnailUrl"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    duration = obj["duration"]?.jsonPrimitive?.longOrNull ?: 0L,
+                    views = obj["views"]?.jsonPrimitive?.longOrNull ?: 0L,
+                    uploadedAt = obj["uploadedAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    isLive = obj["isLive"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    authorAvatarUrl = obj["authorAvatarUrl"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                )
+            }
+        }.getOrElse { emptyList() }
+
     private companion object {
+        const val HOME_SEARCH_QUERY = "популярні відео"
+        const val SHORTS_QUERY = "#shorts"
+        const val BROWSE_NOTIFICATIONS = "FEnotifications"
         const val HOME_FEED_LIMIT = 60
         const val HISTORY_SIGNAL_LIMIT = 500
         const val DAY_MS = 86_400_000L
-        const val TOPIC_QUERY_COUNT = 3
-        const val ALL_TOPIC_QUERY_COUNT = 2
         const val SHORTS_MAX_SECONDS = 180L
-        const val SHORTS_CHANNELS_PER_PAGE = 7
-        const val SHORTS_PER_PAGE = 28
-        const val PER_CHANNEL_TAKE = 7
-        const val SHORTS_DISCOVERY_QUERIES_PER_PAGE = 4
-        const val MAX_CHANNELS_PER_QUERY_BUCKET = 2
-        const val MAX_KNOWN_SHORTS_CHANNELS = 42
         const val SHORTS_SHELF_MAX_SECONDS = 60L
-
-        val MUSIC_QUERIES = listOf("music video", "new song", "official video", "live music")
-        val GAMING_QUERIES = listOf("gaming highlights", "gameplay", "esports highlights", "new game")
-        val MOVIE_QUERIES = listOf("movie trailer", "movie review", "new movie", "film trailer")
-        val SPORTS_QUERIES =
-            listOf("sports highlights", "football highlights", "nba highlights", "tennis highlights")
-        val NEWS_QUERIES = listOf("news today", "world news", "breaking news", "daily news")
-        val TECH_QUERIES = listOf("technology review", "tech news", "gadgets", "science technology")
-        val ALL_TOPIC_QUERIES =
-            MUSIC_QUERIES + GAMING_QUERIES + MOVIE_QUERIES + SPORTS_QUERIES + NEWS_QUERIES + TECH_QUERIES
-
-        val UKRAINIAN_SHORTS_CHANNEL_QUERIES =
-            listOf(
-                "шорти",
-                "українські шорти",
-                "короткі відео",
-                "гумористичні шорти",
-                "кулінарні шорти",
-                "ігрові шорти",
-                "музичні шорти",
-                "спортивні шорти",
-                "цікаві факти шорти",
-                "новини шорти",
-            )
-        val UKRAINIAN_FALLBACK_SHORTS_CHANNELS = emptyList<String>()
-
-        val SHORTS_CHANNEL_QUERIES =
-            UKRAINIAN_SHORTS_CHANNEL_QUERIES + listOf(
-                "shorts", "funny shorts", "animal shorts", "pet shorts",
-                "cooking shorts", "food shorts", "dance shorts", "music shorts",
-                "gaming shorts", "esports shorts", "sports shorts", "soccer shorts",
-                "movie shorts", "science shorts", "tech shorts", "fitness shorts",
-                "travel shorts", "fashion shorts", "comedy shorts", "news shorts",
-                "education shorts", "life hacks shorts",
-            )
-        val FALLBACK_SHORTS_CHANNELS =
-            UKRAINIAN_FALLBACK_SHORTS_CHANNELS + listOf(
-                // Shorts Break
-                "UCgJ5_1F6yJhYLnyMszUdmUg",
-                // A for Adley Shorts
-                "UCMHpfyAqrjrhn-mRS2bUL0g",
-                // Zakiiino short
-                "UCoi2zyVut5_hIKw4eEUji6g",
-                // MrBeast
-                "UCX6OQ3DkcsbYNE6H8uQQuVA",
-                // Funniest YT Clips
-                "UCdTQfOZ4xB-A0lm2QzM1NVQ",
-                // Panda Shorts
-                "UCEYlNI8wno2Xp7YUNdMN22A",
-                // Natural Habitat Shorts
-                "UCSb_Sui6FBxVS4_ROsrU_Iw",
-                // 1 Minute Animals
-                "UCejVe2sNPjjvfCXg35q_EQQ",
-                // Vida Animal Shorts
-                "UCSx6wiYRQfX4SwG4eWBpHAQ",
-                // cookininshort
-                "UC6vQqdqWjC2OO74WqERQ-kA",
-                // Cooking with Kian
-                "UCZnEb05GaAdBbMv4XjBZbaw",
-                // Royal Cooking
-                "UCjAKzWYZLayOQfSud0lU1vQ",
-                // Miniature Cooking Ideas
-                "UCGW2OA5IB1l1YbIeiVLxKcA",
-                // Thay Huy Kid Dance
-                "UCotnhpvYSd-pUAdrb0ceKZw",
-                // Dance with Alisha
-                "UCXORBdm4-ahxpPp94LiN8sA",
-                // ABCD Dance Factory
-                "UC6jaZrPy_AlsMdSPGM7jSyg",
-            )
+        const val SHORTS_PER_PAGE = 28
     }
 }

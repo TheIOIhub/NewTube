@@ -28,8 +28,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -39,11 +41,13 @@ import androidx.navigation.NavController
 import com.example.newtube.R
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
+import com.example.newtube.ui.common.InlineBanner
 import com.example.newtube.ui.common.ShortsTile
-import com.example.newtube.ui.common.rememberShowMetadata
+import com.example.newtube.ui.common.ThumbnailUrls
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.VideoCardSkeleton
+import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.shell.HomeTopBar
 
 @Composable
@@ -55,7 +59,30 @@ fun HomeScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val shelf by viewModel.shortsShelf.collectAsState()
+    val sourceUnavailable by viewModel.sourceUnavailable.collectAsState()
     val listState = rememberLazyListState()
+    val context = LocalContext.current
+
+    // Key on the ids, not the UiState instance: repeated emissions of the
+    // same feed must not re-enqueue the first cards' prefetches.
+    val prefetchIds =
+        (uiState as? UiState.Success)
+            ?.data
+            .orEmpty()
+            .distinctBy { it.id }
+            .map { it.id }
+            .take(ThumbnailUrls.PREFETCH_COUNT)
+    val prefetchKey = prefetchIds.joinToString(",")
+    val prefetchUrls =
+        remember(prefetchKey) {
+            prefetchIds.map(ThumbnailUrls::hq)
+        }
+    LaunchedEffect(prefetchUrls) {
+        if (prefetchUrls.isNotEmpty()) {
+            ThumbnailUrls.prefetch(context, prefetchUrls, ThumbnailUrls.THUMBNAIL_SIZE_PX)
+        }
+    }
+
     val openShort: (String) -> Unit = { videoId ->
         navController.navigate("shorts?videoId=$videoId") {
             popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -85,6 +112,15 @@ fun HomeScreen(
                     selected = selectedCategory,
                     onSelect = viewModel::selectCategory,
                 )
+            }
+            if (sourceUnavailable && uiState is UiState.Success) {
+                item(key = "source-unavailable") {
+                    InlineBanner(
+                        message = stringResource(R.string.source_unavailable),
+                        action = stringResource(R.string.retry),
+                        onAction = viewModel::refresh,
+                    )
+                }
             }
             if (shelf.isNotEmpty()) {
                 item(key = "shorts-shelf") {

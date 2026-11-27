@@ -26,6 +26,9 @@ class CommentsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<UiState<CommentsUiState>>(UiState.Loading)
     val uiState: StateFlow<UiState<CommentsUiState>> = _uiState
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
     private var videoId: String = ""
     private var continuation: String? = null
     private var loading = false
@@ -45,7 +48,9 @@ class CommentsViewModel @Inject constructor(
         this.videoId = videoId
         continuation = null
         reachedEnd = false
-        _uiState.value = UiState.Loading
+        // A retry keeps the already loaded page on screen while it revalidates.
+        if (_uiState.value !is UiState.Success) _uiState.value = UiState.Loading
+        _isRefreshing.value = true
         viewModelScope.launch {
             try {
                 val page = repository.getComments(videoId)
@@ -60,7 +65,11 @@ class CommentsViewModel @Inject constructor(
                         ),
                     )
             } catch (e: Exception) {
-                _uiState.value = UiState.Error(e.toUserMessage())
+                if (_uiState.value !is UiState.Success) {
+                    _uiState.value = UiState.Error(e.toUserMessage())
+                }
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }

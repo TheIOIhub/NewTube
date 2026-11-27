@@ -1,0 +1,54 @@
+{
+  "header": {
+    "channelHeaderRenderer": {
+      "title": { "simpleText": "Fixture Channel" },
+      "navigationEndpoint": {
+        "browseEndpoint": { "browseId": "UCfixture000000000000001" }
+      },
+      "avatar": {
+        "thumbnails": [
+          { "url": "https://example.invalid/avatar/48.jpg", "width": 48 },
+          { "url": "https://example.invalid/avatar/176.jpg", "width": 176 }
+        ]
+      },
+      "subscriberCountText": { "simpleText": "123K subscribers" },
+      "videoCountText": { "runs": [{ "text": "456 videos" }] },
+      "description": { "simpleText": "A fixture channel for parser tests" }
+    }
+  },
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "richGridRenderer": {
+                "contents": [
+                  {
+                    "videoRenderer": {
+                      "videoId": "channel000001",
+                      "title": { "simpleText": "Channel upload one" },
+                      "ownerText": { "simpleText": "Fixture Channel" },
+                      "lengthText": { "simpleText": "8:00" },
+                      "viewCountText": { "simpleText": "500 views" },
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://example.invalid/vi/channel000001/hq.jpg", "width": 480, "height": 360 }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "continuationItemRenderer": {
+                      "continuationCommand": { "token": "CHANNEL_VIDEOS_CONTINUATION_TOKEN" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
