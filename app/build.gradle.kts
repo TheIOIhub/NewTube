@@ -6,6 +6,18 @@ plugins {
     id("dagger.hilt.android.plugin")
 }
 
+// Release signing is optional at build time: pass -PreleaseStoreFile=…
+// plus the three secrets, or set them via CI properties. Nothing secret is
+// committed; assembleDebug and `gradlew test` stay unaffected.
+val signingStoreFile = project.findProperty("releaseStoreFile") as String?
+val signingReady =
+    listOf(
+        signingStoreFile,
+        project.findProperty("releaseStorePassword"),
+        project.findProperty("releaseKeyAlias"),
+        project.findProperty("releaseKeyPassword"),
+    ).all { it != null && it.toString().isNotBlank() }
+
 android {
     namespace = "com.example.newtube"
     compileSdk = 34
@@ -17,6 +29,16 @@ android {
         versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    signingConfigs {
+        if (signingReady) {
+            create("release") {
+                storeFile = file(signingStoreFile!!)
+                storePassword = project.property("releaseStorePassword").toString()
+                keyAlias = project.property("releaseKeyAlias").toString()
+                keyPassword = project.property("releaseKeyPassword").toString()
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -24,6 +46,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (signingReady) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     buildFeatures {
