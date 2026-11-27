@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,6 +66,7 @@ fun PlayerGestureOverlay(
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    val topControlsPx = with(LocalDensity.current) { 72.dp.toPx() }
     var seekFeedback by remember { mutableStateOf<Int?>(null) }
     var indicator by remember { mutableStateOf<Pair<Boolean, Float>?>(null) }
 
@@ -81,12 +83,11 @@ fun PlayerGestureOverlay(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        content()
-
-        Box(
-            modifier =
-                Modifier.fillMaxSize().pointerInput(
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .pointerInput(
                     isFullscreen,
                     isShorts,
                     settings.doubleTapSeekSeconds,
@@ -176,6 +177,7 @@ fun PlayerGestureOverlay(
                                         continue
                                     }
 
+                                    if (startY < topControlsPx) continue
                                     val now = System.currentTimeMillis()
                                     val side =
                                         GestureMath.classifyThird(startX.toInt(), size.width)
@@ -211,7 +213,8 @@ fun PlayerGestureOverlay(
                         }
                     }
                 },
-        )
+    ) {
+        content()
 
         seekFeedback?.let { seconds ->
             val label = if (seconds > 0) "+$seconds s" else "$seconds s"
