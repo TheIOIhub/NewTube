@@ -188,3 +188,12 @@ API дискового кешу (`SimpleCache`, `LeastRecentlyUsedCacheEvictor`,
 ---
 
 Цей файл `SPEC.md` містить специфікацію, фактичний стан реалізації та план розробки.
+
+## Додаток (2026-11-27): регіональний контент і розширений плеєр
+
+- `AppSettings` доповнено полями `contentCountry` (`UA`), `contentLanguage` (`uk`), `preferredAudioLanguage`, `appLanguage`, жестами, `resizeMode` (константи Media3 FIT=0/FILL=3/ZOOM=4), `doubleTapSeekSeconds`, `videoBrightness` та ін.; збереження — DataStore `settings`, єдиний шлях запису `SettingsRepository.update`.
+- `InvidiousService` передає `region`/`hl` у `trending`, `search`, `search/suggestions` та `videos/{id}`. Зміна країни/мови інвалідує кеші Home і Shorts; відкриття каналів для Shorts починається з українських запитів.
+- `HomeCategory.FOR_YOU` ("Для вас") ранжує регіональну стрічку чистою функцією `rankFeed` за локальною історією, підписками та мовою; бекенд рекомендацій не додавався.
+- Фільтр контенту (`VideoContentFilter`) діє до мапінгу DTO: вікові обмеження та best-effort безпечний режим; підказки пошуку та приховування метаданих керуються налаштуваннями.
+- Плеєр: меню аудіодоріжок із `TrackSelectionOverride` і відкатом на перествочення джерела для `Merged`, цикл FIT→FILL→ZOOM, жести подвійного тапу (третини екрана) та вертикальні свайпи у повному екрані (зліва яскравість, справа гучність).
+- Дизайн і дослідження: `docs/superpowers/specs/2026-11-27-regional-personalized-player-design.md`, `docs/research/2026-11-27-newpipe-player-features.md`.

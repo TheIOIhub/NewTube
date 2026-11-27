@@ -83,6 +83,11 @@ fun WatchScreen(
                     viewModel::savePosition,
                     viewModel::setResizeMode,
                     viewModel::setVideoBrightness,
+                    {
+                        watch.details.related.firstOrNull()?.id?.let { nextId ->
+                            viewModel.onPlaybackEnded { navController.navigate("watch/$nextId") }
+                        }
+                    },
                 )
             }
         }
@@ -98,6 +103,7 @@ private fun WatchContent(
     onSavePosition: (Long) -> Unit,
     onResizeModeChange: (Int) -> Unit,
     onBrightnessChange: (Float) -> Unit,
+    onPlaybackEnded: () -> Unit,
 ) {
     var isFullscreen by rememberSaveable { mutableStateOf(false) }
     val details = watch.details
@@ -126,6 +132,7 @@ private fun WatchContent(
             brightnessGestureSide = settings.brightnessGestureSide,
             videoBrightness = settings.videoBrightness,
             onBrightnessChange = onBrightnessChange,
+            onPlaybackEnded = onPlaybackEnded,
         )
 
         if (!isFullscreen) {
@@ -158,6 +165,17 @@ private fun WatchContent(
                 }
                 item {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                }
+                val next = watch.nextVideo
+                if (next != null) {
+                    item {
+                        TextButton(
+                            onClick = { navController.navigate("watch/${next.id}") },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        ) {
+                            Text(stringResource(R.string.watch_next, next.title))
+                        }
+                    }
                 }
                 if (details.related.isNotEmpty()) {
                     item {

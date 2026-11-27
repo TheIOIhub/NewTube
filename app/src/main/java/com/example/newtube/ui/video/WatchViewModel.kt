@@ -23,6 +23,7 @@ import javax.inject.Inject
 data class WatchUiState(
     val details: VideoDetails,
     val startPositionMs: Long,
+    val nextVideo: com.example.newtube.model.Video? = null,
 )
 
 @HiltViewModel
@@ -64,7 +65,9 @@ class WatchViewModel @Inject constructor(
                         .getOrDefault(AppSettings.DEFAULT_QUALITY)
                 val details = repository.getVideoDetails(videoId, maxHeight)
                 val position = playbackPositions.positionFor(videoId)
-                _uiState.value = UiState.Success(WatchUiState(details, position))
+                val autoplay = runCatching { settingsRepository.settings.first().autoplayNext }.getOrDefault(true)
+                val next = if (autoplay) details.related.firstOrNull() else null
+                _uiState.value = UiState.Success(WatchUiState(details, position, next))
                 runCatching {
                     if (settingsRepository.settings.first().recordHistory) {
                         historyRepository.record(details.video)
@@ -79,6 +82,11 @@ class WatchViewModel @Inject constructor(
 
     fun setResizeMode(mode: Int) {
         viewModelScope.launch { settingsRepository.update { it.copy(resizeMode = mode) } }
+    }
+
+    fun onPlaybackEnded(onNavigateNext: () -> Unit) {
+        val next = (_uiState.value as? UiState.Success)?.data?.nextVideo ?: return
+        viewModelScope.launch { onNavigateNext() }
     }
 
     fun setVideoBrightness(brightness: Float) {

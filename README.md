@@ -98,3 +98,11 @@ NewTube is an unofficial client for Invidious and is not affiliated with YouTube
 ---
 
 © 2026 NewTube project. All rights reserved.
+
+## Regional feed and extended player (2026-11-27)
+
+- **Ukrainian-first content:** `contentCountry` (default `UA`) and `contentLanguage` (default `uk`) are sent as Invidious `region`/`hl` on trending, search, Shorts discovery and video details. Changing either refreshes Home and Shorts immediately; Shorts channel discovery starts with Ukrainian queries and keeps the old pool as fallback.
+- **"Для вас" chip:** the first Home category ranks the regionalised feed by local watch history and (when signed in) subscriptions, with an explicit Ukrainian-language preference. Ranking is deterministic and local-only — no backend.
+- **Content settings with real behaviour:** search suggestions (`/api/v1/search/suggestions`, 250 ms debounce), best-effort age-restricted/safe-mode filtering before persistence, and a "show metadata" switch for cards. App language follows `LocaleManager` on Android 13+.
+- **Player:** audio-track menu from live Media3 tracks (with source reload for language-tagged separate audio), persisted FIT → FILL → ZOOM cycle, double-tap thirds to seek (±10 s by default) and fullscreen vertical swipes (left brightness, right volume, configurable sides), plus an autoplay-next row.
+- Detailed design: `docs/superpowers/specs/2026-11-27-regional-personalized-player-design.md`; NewPipe research: `docs/research/2026-11-27-newpipe-player-features.md`.

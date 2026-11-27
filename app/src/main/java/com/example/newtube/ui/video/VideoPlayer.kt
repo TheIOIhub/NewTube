@@ -96,6 +96,7 @@ fun VideoPlayer(
     brightnessGestureSide: GestureSide = GestureSide.LEFT,
     videoBrightness: Float? = null,
     onBrightnessChange: (Float) -> Unit = {},
+    onPlaybackEnded: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
@@ -142,6 +143,7 @@ fun VideoPlayer(
     val exoPlayer = holder?.player ?: ownedPlayer ?: error("No player available")
 
     val currentOnSavePosition by rememberUpdatedState(onSavePosition)
+    val currentOnPlaybackEnded by rememberUpdatedState(onPlaybackEnded)
 
     LaunchedEffect(exoPlayer) {
         Log.i(TAG, "Preparing ${playback.describe()} for ${startPositionMs}ms")
@@ -172,6 +174,9 @@ fun VideoPlayer(
                     isBuffering = playbackState == Player.STATE_BUFFERING
                     if (playbackState == Player.STATE_READY) {
                         playbackError = null
+                    }
+                    if (playbackState == Player.STATE_ENDED) {
+                        currentOnPlaybackEnded()
                     }
                     if (playbackState == Player.STATE_READY && !restored) {
                         restored = true

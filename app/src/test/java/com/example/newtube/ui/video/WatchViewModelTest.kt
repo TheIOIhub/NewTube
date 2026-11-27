@@ -146,7 +146,64 @@ class WatchViewModelTest {
             assertTrue(viewModel.uiState.value is UiState.Success)
         }
 
-    private fun details() =
+    @Test
+    fun `nextVideo is null when autoplay is disabled`() =
+        runTest {
+            every { settings.settings } returns flowOf(AppSettings(autoplayNext = false))
+            coEvery { repository.getVideoDetails("v1", 720) } returns details(related = listOf(video("v2")))
+            coEvery { playbackPositions.positionFor("v1") } returns 0L
+
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(null, (viewModel.uiState.value as UiState.Success).data.nextVideo)
+        }
+
+    @Test
+    fun `nextVideo is the first related item when autoplay is enabled`() =
+        runTest {
+            val next = video("v2")
+            coEvery { repository.getVideoDetails("v1", 720) } returns details(related = listOf(next))
+            coEvery { playbackPositions.positionFor("v1") } returns 0L
+
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(next, (viewModel.uiState.value as UiState.Success).data.nextVideo)
+        }
+
+    @Test
+    fun `onPlaybackEnded does nothing without a next video`() =
+        runTest {
+            coEvery { repository.getVideoDetails("v1", 720) } returns details()
+            coEvery { playbackPositions.positionFor("v1") } returns 0L
+            var navigated = false
+
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.onPlaybackEnded { navigated = true }
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(false, navigated)
+        }
+
+    private fun video(id: String) =
+        Video(
+            id = id,
+            title = "Video $id",
+            channelName = "Channel",
+            channelId = "UC$id",
+            thumbnailUrl = "https://example.com/$id.jpg",
+            duration = 120L,
+            views = 100L,
+            uploadedAt = "1 day ago",
+            isLive = false,
+        )
+
+    private fun details(related: List<Video> = emptyList()) =
         VideoDetails(
             video =
                 Video(
@@ -161,7 +218,7 @@ class WatchViewModelTest {
                     isLive = false,
                 ),
             description = "Description",
-            related = emptyList(),
+            related = related,
             playback = PlaybackSource.Hls("https://example.com/manifest"),
         )
 }

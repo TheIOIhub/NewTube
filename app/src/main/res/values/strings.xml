@@ -165,4 +165,5 @@
     <string name="settings_gesture_speed_summary">Поки недоступно</string>
 
     <string name="category_for_you">Для вас</string>
+    <string name="watch_next">Далі: %1$s</string>
 </resources>
