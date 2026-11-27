@@ -65,14 +65,18 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
-    // ExoPlayer
-    implementation("com.google.android.exoplayer:exoplayer:2.19.0")
-    implementation("com.google.android.exoplayer:exoplayer-ui:2.19.0")
+    // Media3 (ExoPlayer)
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+
+    // Paging 3 (Shorts feed mediator)
+    implementation("androidx.paging:paging-runtime-ktx:3.2.1")
 
     // Kotlinx Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")

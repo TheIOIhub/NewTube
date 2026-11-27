@@ -19,6 +19,7 @@ import com.example.newtube.remote.FormatStreamDto
 import com.example.newtube.remote.InvidiousService
 import com.example.newtube.remote.ThumbnailDto
 import com.example.newtube.remote.VideoDto
+import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -35,6 +36,7 @@ class VideoRepositoryImpl @Inject constructor(
     private val service: InvidiousService,
     private val dao: VideoDao,
     private val channelDao: ChannelDao,
+    private val shortsCache: ShortsCacheRepository,
 ) : VideoRepository {
     /** Serializes channel rotation and the shared "already used" set. */
     private val shortsChannelMutex = Mutex()
@@ -104,21 +106,25 @@ class VideoRepositoryImpl @Inject constructor(
     private fun pickQueries(pool: List<String>): List<FeedSource> =
         pool.shuffled().take(TOPIC_QUERY_COUNT).map(FeedSource::Search)
 
+    /**
+     * Paged loads for the Shorts mediator: every call advances the channel
+     * rotation, so consecutive `page` values yield a fresh batch without a
+     * separate continuation API.
+     */
     override suspend fun getShorts(page: Int): List<Video> =
         withContext(Dispatchers.IO) {
             // Invidious has no Shorts feed and its search ignores YouTube's
             // Shorts shelf, so the only reliable source is the per-channel
-            // `/shorts` endpoint. Channels are discovered by name search and
-            // rotated, which also gives the feed its variety.
-            val selected = shortsChannelMutex.withLock { nextShortsChannels() }
-            // Keep the selected channel id next to its result so the
-            // per-channel cap never depends on the payload's authorId.
-            val results =
-                coroutineScope {
-                    selected.map { channelId ->
-                        async { channelId to runCatching { service.getChannelShorts(channelId) } }
-                    }.awaitAll()
-                }
+            // `/shorts` endpoint. Known channel ids are reused first; channels
+            // are discovered only when no usable cached ids are left.
+            val first = shortsChannelMutex.withLock { nextShortsChannels() }
+            var results = fetchShorts(first.ids)
+            if (first.fromCache && results.isNotEmpty() && results.all { it.second.isFailure }) {
+                // Every cached channel failed: discover fresh ones and mix in
+                // the curated fallback instead of repeating the failing set.
+                val retry = shortsChannelMutex.withLock { nextShortsChannels(forceDiscovery = true) }
+                results = fetchShorts(retry.ids)
+            }
             if (results.isNotEmpty() && results.all { it.second.isFailure }) {
                 throw results.first().second.exceptionOrNull()
                     ?: IllegalStateException("No shorts channels")
@@ -156,8 +162,41 @@ class VideoRepositoryImpl @Inject constructor(
                 .toDomainVideos()
         }
 
+    /**
+     * Keeps the selected channel id next to its result so the per-channel cap
+     * never depends on the payload's authorId.
+     */
+    private suspend fun fetchShorts(selected: List<String>) =
+        coroutineScope {
+            selected.map { channelId ->
+                async { channelId to runCatching { service.getChannelShorts(channelId) } }
+            }.awaitAll()
+        }
+
+    private data class ShortsChannelSelection(
+        val ids: List<String>,
+        val fromCache: Boolean,
+    )
+
     /** Must be called with [shortsChannelMutex] held. */
-    private suspend fun nextShortsChannels(): List<String> {
+    private suspend fun nextShortsChannels(forceDiscovery: Boolean = false): ShortsChannelSelection {
+        val known = shortsCache.knownChannelIds()
+        if (!forceDiscovery && known.isNotEmpty()) {
+            val fresh = known.filterNot { it in usedShortsChannels }
+            // All known ids have been used: clear and start a new cycle so the
+            // feed keeps rotating instead of stalling.
+            val pool =
+                if (fresh.isEmpty()) {
+                    usedShortsChannels.clear()
+                    known.toList()
+                } else {
+                    fresh
+                }
+            val chosen = pool.shuffled().take(SHORTS_CHANNELS_PER_PAGE)
+            usedShortsChannels += chosen
+            return ShortsChannelSelection(chosen, fromCache = true)
+        }
+
         val discoveredWithBucket =
             runCatching {
                 coroutineScope {
@@ -177,6 +216,12 @@ class VideoRepositoryImpl @Inject constructor(
             }.getOrDefault(emptyList())
 
         val discovered = discoveredWithBucket.map { it.second }
+        if (discovered.isNotEmpty()) {
+            // Persist discovered ids only; the curated fallback is never cached.
+            shortsCache.rememberChannelIds(
+                (known + discovered).distinct().take(MAX_KNOWN_SHORTS_CHANNELS).toSet(),
+            )
+        }
         // Group by the query bucket that surfaced each channel; cap how many
         // channels any single bucket can contribute.
         val bucketById = discoveredWithBucket.groupBy({ it.first }, { it.second })
@@ -220,7 +265,7 @@ class VideoRepositoryImpl @Inject constructor(
                 picked
             }
         usedShortsChannels += chosen
-        return chosen
+        return ShortsChannelSelection(chosen, fromCache = false)
     }
 
     override suspend fun search(query: String, page: Int): List<Video> =
@@ -461,6 +506,7 @@ class VideoRepositoryImpl @Inject constructor(
         const val PER_CHANNEL_TAKE = 7
         const val SHORTS_DISCOVERY_QUERIES_PER_PAGE = 4
         const val MAX_CHANNELS_PER_QUERY_BUCKET = 2
+        const val MAX_KNOWN_SHORTS_CHANNELS = 42
         const val SHORTS_SHELF_MAX_SECONDS = 60L
 
         val MUSIC_QUERIES = listOf("music video", "new song", "official video", "live music")

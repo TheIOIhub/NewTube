@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.NewTubeDatabase
+import com.example.newtube.database.ShortsFeedDao
 import com.example.newtube.database.VideoDao
 import com.example.newtube.database.WatchHistoryDao
 import dagger.Module
@@ -23,7 +24,11 @@ object DatabaseModule {
     ): NewTubeDatabase =
         Room
             .databaseBuilder(context, NewTubeDatabase::class.java, "newtube_db")
-            .addMigrations(NewTubeDatabase.MIGRATION_1_2, NewTubeDatabase.MIGRATION_2_3)
+            .addMigrations(
+                NewTubeDatabase.MIGRATION_1_2,
+                NewTubeDatabase.MIGRATION_2_3,
+                NewTubeDatabase.MIGRATION_3_4,
+            )
             .build()
 
     @Provides
@@ -34,4 +39,7 @@ object DatabaseModule {
 
     @Provides
     fun provideWatchHistoryDao(db: NewTubeDatabase): WatchHistoryDao = db.watchHistoryDao()
+
+    @Provides
+    fun provideShortsFeedDao(db: NewTubeDatabase): ShortsFeedDao = db.shortsFeedDao()
 }

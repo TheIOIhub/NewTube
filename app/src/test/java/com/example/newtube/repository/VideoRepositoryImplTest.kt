@@ -30,10 +30,13 @@ class VideoRepositoryImplTest {
     private val service: InvidiousService = mockk()
     private val dao: VideoDao = mockk()
     private val channelDao: ChannelDao = mockk()
+    private val shortsCache: ShortsCacheRepository = mockk()
 
     @Before
     fun setUp() {
-        repository = VideoRepositoryImpl(service, dao, channelDao)
+        repository = VideoRepositoryImpl(service, dao, channelDao, shortsCache)
+        coEvery { shortsCache.knownChannelIds() } returns emptySet()
+        coJustRun { shortsCache.rememberChannelIds(any()) }
     }
 
     @Test
@@ -477,6 +480,58 @@ class VideoRepositoryImplTest {
 
             assertTrue(page1.size >= 7)
             assertTrue(page1.map { it.id }.toSet() != page2.map { it.id }.toSet())
+        }
+
+    @Test
+    fun `knownChannelsSkipDiscovery`() =
+        runBlocking {
+            val known = setOf("UCknown1", "UCknown2", "UCknown3")
+            coEvery { shortsCache.knownChannelIds() } returns known
+            coEvery { service.getChannelShorts(any(), null) } answers {
+                val channel = firstArg<String>()
+                ChannelVideosDto(videos = listOf(videoDto("s-$channel", length = 30).copy(authorId = channel)))
+            }
+            coJustRun { dao.insertAll(any()) }
+
+            val shorts = repository.getShorts(1)
+
+            assertEquals(3, shorts.size)
+            coVerify(exactly = 0) { service.searchChannels(any(), any(), any()) }
+            coVerify(exactly = 0) { shortsCache.rememberChannelIds(any()) }
+        }
+
+    @Test
+    fun `fallsBackToDiscoveryWhenCachedChannelsFail`() =
+        runBlocking {
+            val known = setOf("UCknown1", "UCknown2", "UCknown3")
+            coEvery { shortsCache.knownChannelIds() } returns known
+            coEvery { service.getChannelShorts(any(), null) } throws IOException("500")
+            coEvery { service.getChannelShorts("UCnew", null) } returns
+                ChannelVideosDto(videos = listOf(videoDto("short-new", length = 30)))
+            coEvery { service.searchChannels(any(), any(), any()) } returns
+                listOf(ChannelSearchDto(authorId = "UCnew"))
+            coJustRun { dao.insertAll(any()) }
+
+            val shorts = repository.getShorts(1)
+
+            assertEquals(listOf("short-new"), shorts.map { it.id })
+            coVerify { service.searchChannels(any(), any(), any()) }
+            coVerify { shortsCache.rememberChannelIds(known + "UCnew") }
+        }
+
+    @Test
+    fun `preservesCuratedFallback`() =
+        runBlocking {
+            coEvery { service.searchChannels(any(), any(), any()) } returns emptyList()
+            coEvery { service.getChannelShorts(any(), null) } returns
+                ChannelVideosDto(videos = listOf(videoDto("fallback", length = 30)))
+            coJustRun { dao.insertAll(any()) }
+
+            val shorts = repository.getShorts(1)
+
+            assertEquals(listOf("fallback"), shorts.map { it.id }.distinct())
+            coVerify { service.getChannelShorts(any(), null) }
+            coVerify(exactly = 0) { shortsCache.rememberChannelIds(any()) }
         }
 
     @Test

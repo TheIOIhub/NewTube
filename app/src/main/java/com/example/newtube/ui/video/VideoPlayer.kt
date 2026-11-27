@@ -43,21 +43,17 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.example.newtube.R
+import com.example.newtube.di.PlaybackCacheEntryPoint
 import com.example.newtube.model.PlaybackSource
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.PlaybackException
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.Tracks
-import com.google.android.exoplayer2.source.MediaSource
-import com.google.android.exoplayer2.source.MergingMediaSource
-import com.google.android.exoplayer2.source.ProgressiveMediaSource
-import com.google.android.exoplayer2.source.hls.HlsMediaSource
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
-import com.google.android.exoplayer2.ui.AspectRatioFrameLayout
-import com.google.android.exoplayer2.ui.PlayerView
-import com.google.android.exoplayer2.upstream.DefaultDataSource
+import dagger.hilt.android.EntryPointAccessors
 
 /**
  * ExoPlayer surface with the app's controls: play/pause and seeking come from
@@ -71,6 +67,7 @@ import com.google.android.exoplayer2.upstream.DefaultDataSource
 @Composable
 fun VideoPlayer(
     playback: PlaybackSource,
+    holder: ExoPlayerHolder? = null,
     modifier: Modifier = Modifier,
     startPositionMs: Long = 0L,
     loop: Boolean = false,
@@ -93,24 +90,48 @@ fun VideoPlayer(
     var playbackError by remember { mutableStateOf<String?>(null) }
 
     val trackSelector = remember { DefaultTrackSelector(context) }
-    val exoPlayer =
-        remember(playback) {
-            ExoPlayer
-                .Builder(context)
-                .setTrackSelector(trackSelector)
-                .build()
-                .apply {
-                    repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                    setMediaSource(playback.toMediaSource(context))
-                    playWhenReady = true
-                    prepare()
-                }
+    // Route Watch's media source through the SAME singleton cached
+    // CacheDataSource.Factory as Shorts (spec G4 / plan Task 6; M4). The cache
+    // itself is shared; this only reuses it, Shorts behavior is untouched.
+    val cachedDataSourceFactory =
+        remember(context) {
+            EntryPointAccessors
+                .fromApplication(
+                    context.applicationContext,
+                    PlaybackCacheEntryPoint::class.java,
+                ).cacheDataSourceFactory()
         }
+    // The watch screen owns its player; Shorts passes a holder so the same
+    // instance survives page changes and no per-page player is created.
+    val ownedPlayer =
+        remember(playback, holder) {
+            if (holder == null) {
+                ExoPlayer
+                    .Builder(context)
+                    .setTrackSelector(trackSelector)
+                    .build()
+                    .apply {
+                        repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                        setMediaSource(playback.toMediaSource(context, cachedDataSourceFactory))
+                        playWhenReady = true
+                        prepare()
+                    }
+            } else {
+                null
+            }
+        }
+    val exoPlayer = holder?.player ?: ownedPlayer ?: error("No player available")
 
     val currentOnSavePosition by rememberUpdatedState(onSavePosition)
 
     LaunchedEffect(exoPlayer) {
         Log.i(TAG, "Preparing ${playback.describe()} for ${startPositionMs}ms")
+    }
+
+    if (holder != null) {
+        LaunchedEffect(playback) {
+            holder.prepare(playback)
+        }
     }
 
     LaunchedEffect(quality) {
@@ -165,7 +186,7 @@ fun VideoPlayer(
         onDispose {
             currentOnSavePosition(exoPlayer.currentPosition)
             exoPlayer.removeListener(listener)
-            exoPlayer.release()
+            if (holder == null) exoPlayer.release()
         }
     }
 
@@ -240,8 +261,12 @@ fun VideoPlayer(
                     onClick = {
                         Log.i(TAG, "Retrying playback after $errorCode")
                         playbackError = null
-                        exoPlayer.prepare()
-                        exoPlayer.play()
+                        if (holder != null) {
+                            holder.prepare(playback)
+                        } else {
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        }
                     },
                 ) {
                     Text("Retry", color = Color.White)
@@ -339,29 +364,6 @@ private fun PlaybackSource.describe(): String =
     }
 
 private fun String.hostOrUnknown(): String = runCatching { java.net.URI(this).host }.getOrDefault("unknown")
-
-private fun PlaybackSource.toMediaSource(context: Context): MediaSource {
-    val dataSourceFactory = DefaultDataSource.Factory(context)
-    return when (this) {
-        is PlaybackSource.Hls ->
-            HlsMediaSource
-                .Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(url))
-        is PlaybackSource.Progressive ->
-            ProgressiveMediaSource
-                .Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(url))
-        is PlaybackSource.Merged ->
-            MergingMediaSource(
-                ProgressiveMediaSource
-                    .Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(videoUrl)),
-                ProgressiveMediaSource
-                    .Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(audioUrl)),
-            )
-    }
-}
 
 private const val AUTO_QUALITY = 0
 private const val RESUME_TOLERANCE_MS = 5_000L

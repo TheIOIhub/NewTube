@@ -48,9 +48,25 @@ dependencies {
     kapt("com.squareup.moshi:moshi-kotlin-codegen:1.15.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Media3 (playback media cache). Cache APIs ship inside media3-datasource;
+    // there is no separate `media3-datasource-cache` artifact in 1.4.1.
+    // The Media3 POMs expose these only at runtime, so the types used by the
+    // cache API (common + database) are declared explicitly for compilation.
+    implementation("androidx.media3:media3-common:1.4.1")
+    implementation("androidx.media3:media3-database:1.4.1")
+    implementation("androidx.media3:media3-datasource:1.4.1")
+
     implementation("androidx.room:room-runtime:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    // Room 2.6 moved PagingSource support into a separate artifact.
+    implementation("androidx.room:room-paging:2.6.1")
+    // Room's generated LimitOffsetPagingSource needs Paging at compile time,
+    // including on kapt's processor classpath for return-type resolution.
+    implementation("androidx.paging:paging-runtime-ktx:3.2.1")
+    kapt("androidx.paging:paging-common:3.2.1")
+    kapt("androidx.paging:paging-runtime-ktx:3.2.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
