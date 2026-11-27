@@ -221,7 +221,7 @@ internal fun VideoAudioSettingsScreen(
         )
         SettingsRow(
             title = stringResource(R.string.settings_preferred_audio_language),
-            subtitle = settings.preferredAudioLanguage,
+            subtitle = languageDisplayName(settings.preferredAudioLanguage),
             onClick = { audioLanguageDialogOpen = true },
         )
         SettingsSwitchRow(
@@ -272,9 +272,9 @@ internal fun VideoAudioSettingsScreen(
     if (audioLanguageDialogOpen) {
         SettingsChoiceDialog(
             title = stringResource(R.string.settings_preferred_audio_language),
-            options = AppSettings.VALID_LANGUAGES.sorted(),
+            options = AppSettings.VALID_LANGUAGES.sortedBy { languageDisplayName(it) },
             selected = settings.preferredAudioLanguage,
-            label = { it },
+            label = { languageDisplayName(it) },
             onSelect = {
                 viewModel.setPreferredAudioLanguage(it)
                 audioLanguageDialogOpen = false
@@ -326,7 +326,7 @@ internal fun ContentSettingsScreen(
         )
         SettingsRow(
             title = stringResource(R.string.settings_content_language),
-            subtitle = settings.contentLanguage,
+            subtitle = languageDisplayName(settings.contentLanguage),
             onClick = { languageDialogOpen = true },
         )
         SettingsSwitchRow(
@@ -380,9 +380,9 @@ internal fun ContentSettingsScreen(
     if (languageDialogOpen) {
         SettingsChoiceDialog(
             title = stringResource(R.string.settings_content_language),
-            options = AppSettings.VALID_LANGUAGES.sorted(),
+            options = AppSettings.VALID_LANGUAGES.sortedBy { languageDisplayName(it) },
             selected = settings.contentLanguage,
-            label = { it },
+            label = { languageDisplayName(it) },
             onSelect = {
                 viewModel.setContentLanguage(it)
                 languageDialogOpen = false
