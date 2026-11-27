@@ -56,6 +56,8 @@ fun PlayerGestureOverlay(
     isShorts: Boolean,
     settings: AppSettings,
     onBrightness: (Float) -> Unit,
+    canMinimize: Boolean = false,
+    onMinimize: () -> Unit = {},
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
@@ -102,6 +104,7 @@ fun PlayerGestureOverlay(
                     var startX = 0f
                     var startY = 0f
                     var dragging = false
+                    var minimizePending = false
                     var dragAction: DragAction? = null
                     var sequenceBasePosition = 0L
                     var currentFraction = 0.5f
@@ -115,13 +118,28 @@ fun PlayerGestureOverlay(
                                     startX = change.position.x
                                     startY = change.position.y
                                     dragging = false
+                                    minimizePending = false
                                     dragAction = null
                                 }
 
                                 PointerEventType.Move -> {
-                                    if (!isFullscreen || dragging) continue
                                     val dy = change.position.y - startY
                                     val dx = change.position.x - startX
+                                    if (!isFullscreen) {
+                                        if (!minimizePending &&
+                                            GestureMath.shouldMinimize(
+                                                dy.toInt(),
+                                                dx.toInt(),
+                                                isFullscreen,
+                                                canMinimize,
+                                            )
+                                        ) {
+                                            change.consume()
+                                            minimizePending = true
+                                        }
+                                        continue
+                                    }
+                                    if (dragging) continue
                                     if (abs(dy) < 40f || abs(dy) < abs(dx)) continue
                                     if (startY < 40f || size.height - startY < 40f) continue
                                     val half = GestureMath.classifyHalf(startX.toInt(), size.width)
@@ -154,6 +172,12 @@ fun PlayerGestureOverlay(
                                 }
 
                                 PointerEventType.Release -> {
+                                    if (minimizePending) {
+                                        change.consume()
+                                        minimizePending = false
+                                        onMinimize()
+                                        continue
+                                    }
                                     if (dragging) {
                                         change.consume()
                                         val dy = (change.position.y - startY).toInt()

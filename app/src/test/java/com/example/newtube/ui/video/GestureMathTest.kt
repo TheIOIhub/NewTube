@@ -3,6 +3,8 @@ package com.example.newtube.ui.video
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.GestureSide
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GestureMathTest {
@@ -74,6 +76,15 @@ class GestureMathTest {
             null,
             GestureMath.dragAction(0, GestureSide.RIGHT, GestureSide.LEFT, false, false),
         )
+    }
+
+    @Test
+    fun `downward drag minimizes the player only outside fullscreen`() {
+        assertTrue(GestureMath.shouldMinimize(dy = 120, dx = 10, isFullscreen = false, canMinimize = true))
+        assertFalse(GestureMath.shouldMinimize(dy = 120, dx = 10, isFullscreen = true, canMinimize = true))
+        assertFalse(GestureMath.shouldMinimize(dy = 120, dx = 10, isFullscreen = false, canMinimize = false))
+        assertFalse(GestureMath.shouldMinimize(dy = 30, dx = 10, isFullscreen = false, canMinimize = true))
+        assertFalse(GestureMath.shouldMinimize(dy = 120, dx = 300, isFullscreen = false, canMinimize = true))
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.example.newtube.ui.video
 
 import com.example.newtube.model.GestureSide
+import kotlin.math.abs
 
 internal enum class DragAction { VOLUME, BRIGHTNESS }
 
@@ -46,6 +47,14 @@ internal object GestureMath {
         val upper = if (duration > 0) duration else Long.MAX_VALUE
         return (basePosition + delta).coerceIn(0L, upper)
     }
+
+    fun shouldMinimize(
+        dy: Int,
+        dx: Int,
+        isFullscreen: Boolean,
+        canMinimize: Boolean,
+    ): Boolean =
+        canMinimize && !isFullscreen && dy >= 80 && abs(dy) >= abs(dx)
 
     /** Honours reassigned sides and independent enable flags. */
     fun dragAction(

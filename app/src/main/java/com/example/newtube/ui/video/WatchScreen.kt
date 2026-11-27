@@ -2,6 +2,7 @@ package com.example.newtube.ui.video
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,11 +11,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -43,6 +50,8 @@ import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.common.formatCount
+import com.example.newtube.ui.home.HomeScreen
+import com.example.newtube.ui.video.WatchUiState
 
 @Composable
 fun WatchScreen(
@@ -75,15 +84,15 @@ fun WatchScreen(
                     onSavePosition = viewModel::savePosition,
                 )
             } else {
-                WatchContent(
-                    navController,
-                    videoId,
-                    watch,
-                    settings,
-                    viewModel::savePosition,
-                    viewModel::setResizeMode,
-                    viewModel::setVideoBrightness,
-                    {
+                WatchStage(
+                    navController = navController,
+                    videoId = videoId,
+                    watch = watch,
+                    settings = settings,
+                    onSavePosition = viewModel::savePosition,
+                    onResizeModeChange = viewModel::setResizeMode,
+                    onBrightnessChange = viewModel::setVideoBrightness,
+                    onPlaybackEnded = {
                         watch.nextVideo?.id?.let { nextId ->
                             viewModel.onPlaybackEnded { navController.navigate("watch/$nextId") }
                         }
@@ -95,7 +104,7 @@ fun WatchScreen(
 }
 
 @Composable
-private fun WatchContent(
+private fun WatchStage(
     navController: NavHostController,
     videoId: String,
     watch: WatchUiState,
@@ -105,20 +114,41 @@ private fun WatchContent(
     onBrightnessChange: (Float) -> Unit,
     onPlaybackEnded: () -> Unit,
 ) {
+    var isMinimized by rememberSaveable { mutableStateOf(false) }
     var isFullscreen by rememberSaveable { mutableStateOf(false) }
-    val details = watch.details
-    val video = details.video
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isMinimized) {
+            HomeScreen(navController)
+        } else if (!isFullscreen) {
+            WatchContent(
+                navController = navController,
+                videoId = videoId,
+                watch = watch,
+                topPadding = PLAYER_HEIGHT,
+            )
+        }
+
+        val playerModifier =
+            if (isMinimized) {
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+                    .size(width = MINI_WIDTH, height = MINI_HEIGHT)
+                    .clickable { isMinimized = false }
+            } else if (isFullscreen) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+            }
+
         VideoPlayer(
-            playback = details.playback,
+            playback = watch.details.playback,
             startPositionMs = watch.startPositionMs,
-            modifier =
-                if (isFullscreen) {
-                    Modifier.fillMaxSize()
-                } else {
-                    Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                },
+            modifier = playerModifier,
             isFullscreen = isFullscreen,
             onToggleFullscreen = { isFullscreen = !isFullscreen },
             onSavePosition = onSavePosition,
@@ -134,10 +164,33 @@ private fun WatchContent(
             videoBrightness = settings.videoBrightness,
             onBrightnessChange = onBrightnessChange,
             onPlaybackEnded = onPlaybackEnded,
+            canMinimize = !isMinimized && !isFullscreen,
+            onMinimize = { isMinimized = true },
         )
 
-        if (!isFullscreen) {
-            LazyColumn(modifier = Modifier.weight(1f)) {
+        if (isMinimized) {
+            IconButton(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.search_clear))
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchContent(
+    navController: NavHostController,
+    videoId: String,
+    watch: WatchUiState,
+    topPadding: Dp,
+) {
+    val details = watch.details
+    val video = details.video
+
+    Column(modifier = Modifier.fillMaxSize().padding(top = topPadding)) {
+        LazyColumn(modifier = Modifier.weight(1f)) {
                 item {
                     VideoHeader(video = video)
                 }
@@ -200,7 +253,10 @@ private fun WatchContent(
             }
         }
     }
-}
+
+private val PLAYER_HEIGHT: Dp = 202.dp
+private val MINI_WIDTH: Dp = 200.dp
+private val MINI_HEIGHT: Dp = 112.dp
 
 @Composable
 private fun VideoHeader(video: Video) {

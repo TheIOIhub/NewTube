@@ -99,6 +99,8 @@ fun VideoPlayer(
     videoBrightness: Float? = null,
     onBrightnessChange: (Float) -> Unit = {},
     onPlaybackEnded: () -> Unit = {},
+    canMinimize: Boolean = false,
+    onMinimize: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
@@ -275,6 +277,8 @@ fun VideoPlayer(
                 ),
             onBrightness = onBrightnessChange,
             enabled = gesturesEnabled,
+            canMinimize = canMinimize,
+            onMinimize = onMinimize,
         ) {
         AndroidView(
             factory = { viewContext ->
