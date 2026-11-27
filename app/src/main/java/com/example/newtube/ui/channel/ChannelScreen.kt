@@ -34,8 +34,8 @@ import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
-import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.common.formatCount
+import com.example.newtube.ui.common.rememberShowMetadata
 
 @Composable
 fun ChannelScreen(

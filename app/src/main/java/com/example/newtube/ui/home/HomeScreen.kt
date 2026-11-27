@@ -40,10 +40,10 @@ import com.example.newtube.R
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
 import com.example.newtube.ui.common.ShortsTile
-import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.VideoCardSkeleton
+import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.shell.HomeTopBar
 
 @Composable

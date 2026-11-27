@@ -4,6 +4,7 @@ import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.ChannelEntity
 import com.example.newtube.database.VideoDao
 import com.example.newtube.database.VideoEntity
+import com.example.newtube.implementation.VideoContentFilter.applyContentSettings
 import com.example.newtube.model.AccountResult
 import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
@@ -11,13 +12,11 @@ import com.example.newtube.model.Channel
 import com.example.newtube.model.ChannelVideosPage
 import com.example.newtube.model.Comment
 import com.example.newtube.model.CommentPage
+import com.example.newtube.model.FeedSignals
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.PlaybackSource
-import com.example.newtube.model.FeedSignals
 import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
-import com.example.newtube.usecase.rankFeed
-import com.example.newtube.implementation.VideoContentFilter.applyContentSettings
 import com.example.newtube.remote.ChannelDto
 import com.example.newtube.remote.CommentDto
 import com.example.newtube.remote.FormatStreamDto
@@ -29,6 +28,7 @@ import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
+import com.example.newtube.usecase.rankFeed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -258,8 +258,10 @@ class VideoRepositoryImpl @Inject constructor(
         val discoveredWithBucket =
             runCatching {
                 coroutineScope {
-                    (UKRAINIAN_SHORTS_CHANNEL_QUERIES.shuffled() +
-                            SHORTS_CHANNEL_QUERIES.shuffled())
+                    (
+                        UKRAINIAN_SHORTS_CHANNEL_QUERIES.shuffled() +
+                            SHORTS_CHANNEL_QUERIES.shuffled()
+                    )
                         .distinct()
                         .take(SHORTS_DISCOVERY_QUERIES_PER_PAGE)
                         .map { query ->
@@ -630,48 +632,50 @@ class VideoRepositoryImpl @Inject constructor(
         val UKRAINIAN_FALLBACK_SHORTS_CHANNELS = emptyList<String>()
 
         val SHORTS_CHANNEL_QUERIES =
-            UKRAINIAN_SHORTS_CHANNEL_QUERIES + listOf(
-                "shorts", "funny shorts", "animal shorts", "pet shorts",
-                "cooking shorts", "food shorts", "dance shorts", "music shorts",
-                "gaming shorts", "esports shorts", "sports shorts", "soccer shorts",
-                "movie shorts", "science shorts", "tech shorts", "fitness shorts",
-                "travel shorts", "fashion shorts", "comedy shorts", "news shorts",
-                "education shorts", "life hacks shorts",
-            )
+            UKRAINIAN_SHORTS_CHANNEL_QUERIES +
+                listOf(
+                    "shorts", "funny shorts", "animal shorts", "pet shorts",
+                    "cooking shorts", "food shorts", "dance shorts", "music shorts",
+                    "gaming shorts", "esports shorts", "sports shorts", "soccer shorts",
+                    "movie shorts", "science shorts", "tech shorts", "fitness shorts",
+                    "travel shorts", "fashion shorts", "comedy shorts", "news shorts",
+                    "education shorts", "life hacks shorts",
+                )
         val FALLBACK_SHORTS_CHANNELS =
-            UKRAINIAN_FALLBACK_SHORTS_CHANNELS + listOf(
-                // Shorts Break
-                "UCgJ5_1F6yJhYLnyMszUdmUg",
-                // A for Adley Shorts
-                "UCMHpfyAqrjrhn-mRS2bUL0g",
-                // Zakiiino short
-                "UCoi2zyVut5_hIKw4eEUji6g",
-                // MrBeast
-                "UCX6OQ3DkcsbYNE6H8uQQuVA",
-                // Funniest YT Clips
-                "UCdTQfOZ4xB-A0lm2QzM1NVQ",
-                // Panda Shorts
-                "UCEYlNI8wno2Xp7YUNdMN22A",
-                // Natural Habitat Shorts
-                "UCSb_Sui6FBxVS4_ROsrU_Iw",
-                // 1 Minute Animals
-                "UCejVe2sNPjjvfCXg35q_EQQ",
-                // Vida Animal Shorts
-                "UCSx6wiYRQfX4SwG4eWBpHAQ",
-                // cookininshort
-                "UC6vQqdqWjC2OO74WqERQ-kA",
-                // Cooking with Kian
-                "UCZnEb05GaAdBbMv4XjBZbaw",
-                // Royal Cooking
-                "UCjAKzWYZLayOQfSud0lU1vQ",
-                // Miniature Cooking Ideas
-                "UCGW2OA5IB1l1YbIeiVLxKcA",
-                // Thay Huy Kid Dance
-                "UCotnhpvYSd-pUAdrb0ceKZw",
-                // Dance with Alisha
-                "UCXORBdm4-ahxpPp94LiN8sA",
-                // ABCD Dance Factory
-                "UC6jaZrPy_AlsMdSPGM7jSyg",
-            )
+            UKRAINIAN_FALLBACK_SHORTS_CHANNELS +
+                listOf(
+                    // Shorts Break
+                    "UCgJ5_1F6yJhYLnyMszUdmUg",
+                    // A for Adley Shorts
+                    "UCMHpfyAqrjrhn-mRS2bUL0g",
+                    // Zakiiino short
+                    "UCoi2zyVut5_hIKw4eEUji6g",
+                    // MrBeast
+                    "UCX6OQ3DkcsbYNE6H8uQQuVA",
+                    // Funniest YT Clips
+                    "UCdTQfOZ4xB-A0lm2QzM1NVQ",
+                    // Panda Shorts
+                    "UCEYlNI8wno2Xp7YUNdMN22A",
+                    // Natural Habitat Shorts
+                    "UCSb_Sui6FBxVS4_ROsrU_Iw",
+                    // 1 Minute Animals
+                    "UCejVe2sNPjjvfCXg35q_EQQ",
+                    // Vida Animal Shorts
+                    "UCSx6wiYRQfX4SwG4eWBpHAQ",
+                    // cookininshort
+                    "UC6vQqdqWjC2OO74WqERQ-kA",
+                    // Cooking with Kian
+                    "UCZnEb05GaAdBbMv4XjBZbaw",
+                    // Royal Cooking
+                    "UCjAKzWYZLayOQfSud0lU1vQ",
+                    // Miniature Cooking Ideas
+                    "UCGW2OA5IB1l1YbIeiVLxKcA",
+                    // Thay Huy Kid Dance
+                    "UCotnhpvYSd-pUAdrb0ceKZw",
+                    // Dance with Alisha
+                    "UCXORBdm4-ahxpPp94LiN8sA",
+                    // ABCD Dance Factory
+                    "UC6jaZrPy_AlsMdSPGM7jSyg",
+                )
     }
 }

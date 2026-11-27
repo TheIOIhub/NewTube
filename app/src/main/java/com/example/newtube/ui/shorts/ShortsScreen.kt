@@ -4,7 +4,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,7 +51,6 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import com.example.newtube.R
 import com.example.newtube.di.PlaybackCacheEntryPoint
-import com.example.newtube.ui.video.PlayerGestureOverlay
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
@@ -60,6 +58,7 @@ import com.example.newtube.ui.common.EmptyScreen
 import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.UiState
+import com.example.newtube.ui.video.PlayerGestureOverlay
 import dagger.hilt.android.EntryPointAccessors
 
 @Composable

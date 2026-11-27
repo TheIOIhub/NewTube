@@ -6,8 +6,8 @@ import com.example.newtube.implementation.VideoRepositoryImpl
 import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.HomeCategory
-import com.example.newtube.model.WatchHistoryEntry
 import com.example.newtube.model.PlaybackSource
+import com.example.newtube.model.WatchHistoryEntry
 import com.example.newtube.remote.ChannelSearchDto
 import com.example.newtube.remote.ChannelVideosDto
 import com.example.newtube.remote.CommentDto
@@ -16,9 +16,6 @@ import com.example.newtube.remote.FormatStreamDto
 import com.example.newtube.remote.InvidiousService
 import com.example.newtube.remote.ThumbnailDto
 import com.example.newtube.remote.VideoDto
-import com.example.newtube.repository.AccountRepository
-import com.example.newtube.repository.HistoryRepository
-import com.example.newtube.repository.SettingsRepository
 import io.mockk.coEvery
 import io.mockk.coJustRun
 import io.mockk.coVerify
