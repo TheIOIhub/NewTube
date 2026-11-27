@@ -139,6 +139,7 @@ fun PlayerGestureOverlay(
                                             settings.gestureBrightness,
                                         )
                                     if (dragAction == null) continue
+                                    change.consume()
                                     dragging = true
                                     currentFraction =
                                         if (dragAction == DragAction.VOLUME) {
@@ -154,6 +155,7 @@ fun PlayerGestureOverlay(
 
                                 PointerEventType.Release -> {
                                     if (dragging) {
+                                        change.consume()
                                         val dy = (change.position.y - startY).toInt()
                                         val next =
                                             GestureMath.dragFraction(dy, size.height, currentFraction)
