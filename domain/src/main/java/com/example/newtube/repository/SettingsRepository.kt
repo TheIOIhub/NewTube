@@ -7,6 +7,9 @@ import kotlinx.coroutines.flow.Flow
 interface SettingsRepository {
     val settings: Flow<AppSettings>
 
+    /** Single write path for every preference; setters below delegate to it. */
+    suspend fun update(transform: (AppSettings) -> AppSettings)
+
     suspend fun setThemeMode(mode: ThemeMode)
 
     suspend fun setRecordHistory(enabled: Boolean)
