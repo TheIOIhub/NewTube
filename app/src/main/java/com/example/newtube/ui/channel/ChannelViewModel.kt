@@ -39,6 +39,9 @@ class ChannelViewModel @Inject constructor(
     /** Page 1 of the active channel; the pager's token comes from loadMore(). */
     private val activeFeed = MutableStateFlow<FeedKey.Channel?>(null)
 
+    /** Last cached uploads, kept so a retry of the same key can re-publish them. */
+    private var cachedVideos: List<Video> = emptyList()
+
     private var channelId: String = ""
     private var continuation: String? = null
     private var needsContinuation = false
@@ -58,22 +61,34 @@ class ChannelViewModel @Inject constructor(
                 }
                 .collect { cached ->
                     if (cached.isNotEmpty() && activeFeed.value?.channelId == channelId) {
+                        cachedVideos = cached
                         _uiState.update { it.copy(videos = cached, videosError = null) }
                     }
                 }
         }
     }
 
-    fun loadChannelDetails(channelId: String) {
-        if (this.channelId == channelId && _uiState.value.channel is UiState.Success) return
+    fun loadChannelDetails(channelId: String) = loadChannelDetails(channelId, force = false)
+
+    private fun loadChannelDetails(
+        channelId: String,
+        force: Boolean,
+    ) {
+        if (!force && this.channelId == channelId && _uiState.value.channel is UiState.Success) return
         val token = ++requestToken
+        val sameChannel = this.channelId == channelId
         this.channelId = channelId
+        if (sameChannel) {
+            // Re-subscribe so flatMapLatest re-emits the cached uploads on retry.
+            activeFeed.value = null
+            cachedVideos = _uiState.value.videos
+        }
         activeFeed.value = FeedKey.Channel(channelId)
         continuation = null
         needsContinuation = false
         loadingVideos = false
         reachedEnd = false
-        _uiState.value = ChannelUiState()
+        _uiState.value = ChannelUiState(videos = cachedVideos.takeIf { sameChannel }.orEmpty())
         _isRefreshing.value = true
         viewModelScope.launch {
             try {
@@ -107,9 +122,7 @@ class ChannelViewModel @Inject constructor(
 
     fun retry() {
         if (channelId.isBlank()) return
-        val id = channelId
-        this.channelId = ""
-        loadChannelDetails(id)
+        loadChannelDetails(channelId, force = true)
     }
 
     fun loadMore() {
@@ -118,13 +131,21 @@ class ChannelViewModel @Inject constructor(
 
     private fun loadVideos() {
         if (channelId.isBlank() || loadingVideos || reachedEnd) return
+        val token = requestToken
+        val id = channelId
         loadingVideos = true
         _uiState.update { it.copy(isLoadingMore = true, videosError = null) }
-        val id = channelId
         viewModelScope.launch {
             try {
-                if (needsContinuation) {
-                    val first = repository.getChannelVideos(id, null)
+                val first =
+                    if (needsContinuation) {
+                        repository.getChannelVideos(id, null)
+                    } else {
+                        null
+                    }
+                // Switching channels invalidates this page; never mix videos.
+                if (token != requestToken || id != channelId) return@launch
+                if (first != null) {
                     continuation = first.continuation
                     needsContinuation = false
                     if (first.continuation == null) reachedEnd = true
@@ -132,14 +153,19 @@ class ChannelViewModel @Inject constructor(
                     if (reachedEnd) return@launch
                 }
                 val page = repository.getChannelVideos(id, continuation)
+                if (token != requestToken || id != channelId) return@launch
                 continuation = page.continuation
                 if (page.continuation == null) reachedEnd = true
                 _uiState.update { it.copy(videos = (it.videos + page.videos).distinctBy { it.id }) }
             } catch (e: Exception) {
-                _uiState.update { it.copy(videosError = e.toUserMessage()) }
+                if (token == requestToken && id == channelId) {
+                    _uiState.update { it.copy(videosError = e.toUserMessage()) }
+                }
             } finally {
-                loadingVideos = false
-                _uiState.update { it.copy(isLoadingMore = false) }
+                if (token == requestToken && id == channelId) {
+                    loadingVideos = false
+                    _uiState.update { it.copy(isLoadingMore = false) }
+                }
             }
         }
     }

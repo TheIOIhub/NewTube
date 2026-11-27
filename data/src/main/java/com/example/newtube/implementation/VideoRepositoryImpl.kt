@@ -72,12 +72,16 @@ class VideoRepositoryImpl @Inject constructor(
         feedCache.clearAll()
     }
 
-    /** Cached JSON is parsed on every emission so the UI sees stale data first. */
+    /**
+     * Cached JSON is parsed and normalised on every emission so the UI sees
+     * stale data in exactly the same shape as a refreshed feed.
+     */
     override fun observeFeed(key: FeedKey): Flow<List<Video>> =
         feedCache
             .observe(key.cacheKey())
             .map { json ->
-                json?.let { ContentParser.parseFeed(it).items } ?: emptyList()
+                val items = json?.let { ContentParser.parseFeed(it).items }.orEmpty()
+                items.forFeedKey(key)
             }
             .flowOn(Dispatchers.Default)
 
@@ -87,7 +91,27 @@ class VideoRepositoryImpl @Inject constructor(
             val json = withContext(Dispatchers.IO) { key.fetchJson() }
             // An exhausted search page has no response to cache; keep the old page.
             if (json.isNotBlank()) feedCache.put(key.cacheKey(), json)
-            ContentParser.parseFeed(json).items
+            ContentParser.parseFeed(json).items.forFeedKey(key)
+        }
+
+    /**
+     * One normalisation path for cached and freshly fetched feeds: content
+     * filtering + metadata persistence (and the same limit/ranking the old
+     * suspend feed methods applied) must not depend on which path produced it.
+     */
+    private suspend fun List<Video>.forFeedKey(key: FeedKey): List<Video> =
+        when (key) {
+            is FeedKey.Home -> {
+                val limited = toFilteredVideos().take(HOME_FEED_LIMIT)
+                if (key.category == HomeCategory.FOR_YOU) rankForYou(limited) else limited
+            }
+            is FeedKey.Search -> toFilteredVideos().take(HOME_FEED_LIMIT)
+            is FeedKey.Channel -> toFilteredVideos()
+            FeedKey.Shorts ->
+                filter { it.duration in 0L..SHORTS_MAX_SECONDS && !it.isLive }
+                    .toFilteredVideos()
+                    .take(SHORTS_PER_PAGE)
+            FeedKey.Notifications -> toFilteredVideos()
         }
 
     private fun FeedKey.cacheKey(): String =
@@ -120,9 +144,11 @@ class VideoRepositoryImpl @Inject constructor(
             contentClient.browse(category.browseId()).toFilteredVideos().take(HOME_FEED_LIMIT)
         }
 
-    override suspend fun getForYouFeed(): List<Video> =
+    override suspend fun getForYouFeed(): List<Video> = rankForYou(getHomeFeed(HomeCategory.ALL))
+
+    /** Shared by the direct feed and the cache-backed Home(FOR_YOU) path. */
+    private suspend fun rankForYou(base: List<Video>): List<Video> =
         withContext(Dispatchers.IO) {
-            val base = getHomeFeed(HomeCategory.ALL)
             val settings = settingsRepository.settings.first()
             val history = historyRepository.observeLocal(HISTORY_SIGNAL_LIMIT).first()
             val now = System.currentTimeMillis()

@@ -195,28 +195,54 @@ class VideoRepositoryImplTest {
     @Test
     fun `getForYouFeed ranks a watched Ukrainian channel first`() =
         runBlocking {
-            coEvery { contentClient.browse(any(), any()) } returns
-                feedJson(
-                    FeedItem("us", title = "Breaking news", channelId = "UCus"),
-                    FeedItem("ua", title = "Новини України", channelId = "UCua"),
-                )
-            coEvery { historyRepository.observeLocal(500) } returns
-                flowOf(
-                    listOf(
-                        WatchHistoryEntry(
-                            videoId = "old",
-                            title = "Watched",
-                            channelName = "UA",
-                            channelId = "UCua",
-                            authorAvatarUrl = "",
-                            thumbnailUrl = "",
-                            durationMs = 1000L,
-                            watchedAt = System.currentTimeMillis(),
-                        ),
-                    ),
-                )
+            coEvery { contentClient.browse(any(), any()) } returns forYouJson()
+            coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
 
             assertEquals("ua", repository.getForYouFeed().first().id)
+        }
+
+    @Test
+    fun `refreshFeed Home FOR_YOU keeps the same ranked order as getForYouFeed`() =
+        runBlocking {
+            coEvery { contentClient.browse(any(), any()) } returns forYouJson()
+            coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
+
+            val refreshed = repository.refreshFeed(FeedKey.Home(HomeCategory.FOR_YOU)).getOrThrow()
+
+            assertEquals("ua", refreshed.first().id)
+            coVerify { dao.insertAll(any()) }
+        }
+
+    @Test
+    fun `observeFeed Home FOR_YOU ranks cached videos too`() =
+        runBlocking {
+            every { feedCache.observe("home:FOR_YOU") } returns flowOf(forYouJson())
+            coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
+
+            val cached = repository.observeFeed(FeedKey.Home(HomeCategory.FOR_YOU)).first()
+
+            assertEquals("ua", cached.first().id)
+            coVerify { dao.insertAll(any()) }
+        }
+
+    @Test
+    fun `refreshFeed and observeFeed apply content filtering and the feed limit`() =
+        runBlocking {
+            val json =
+                feedJson(
+                    *((1..70).map { FeedItem("$it") } + FeedItem("blocked", title = "adult content")).toTypedArray(),
+                )
+            coEvery { contentClient.browse(any(), any()) } returns json
+            every { feedCache.observe("home:ALL") } returns flowOf(json)
+
+            val refreshed = repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)).getOrThrow()
+            val cached = repository.observeFeed(FeedKey.Home(HomeCategory.ALL)).first()
+
+            assertEquals(60, refreshed.size)
+            assertEquals(60, cached.size)
+            assertTrue(refreshed.none { it.id == "blocked" })
+            assertTrue(cached.none { it.id == "blocked" })
+            coVerify { dao.insertAll(any()) }
         }
 
     @Test
@@ -428,6 +454,24 @@ class VideoRepositoryImplTest {
             coVerify { contentClient.player("v1") }
             coVerify { contentClient.next("from-player") }
         }
+
+    private fun forYouJson() =
+        feedJson(
+            FeedItem("us", title = "Breaking news", channelId = "UCus"),
+            FeedItem("ua", title = "Новини України", channelId = "UCua"),
+        )
+
+    private fun watchedUkrainian() =
+        WatchHistoryEntry(
+            videoId = "old",
+            title = "Watched",
+            channelName = "UA",
+            channelId = "UCua",
+            authorAvatarUrl = "",
+            thumbnailUrl = "",
+            durationMs = 1000L,
+            watchedAt = System.currentTimeMillis(),
+        )
 
     private data class FeedItem(
         val id: String,

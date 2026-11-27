@@ -9,6 +9,7 @@ import com.example.newtube.ui.common.UiState
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -106,6 +107,52 @@ class ChannelViewModelTest {
 
             assertEquals(cached, viewModel.uiState.value.videos)
             assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `retry re-publishes cached uploads when the refresh fails`() =
+        runTest {
+            val cached = listOf(video("cached"))
+            every { repository.observeFeed(FeedKey.Channel("UC1")) } returns flowOf(cached)
+            coEvery { repository.getChannelDetails("UC1") } returns channel()
+            coEvery { repository.refreshFeed(FeedKey.Channel("UC1")) } returnsMany
+                listOf(Result.success(cached), Result.failure(IOException("offline")))
+
+            val viewModel = ChannelViewModel(repository)
+            viewModel.loadChannelDetails("UC1")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(cached, viewModel.uiState.value.videos)
+
+            viewModel.retry()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(cached, viewModel.uiState.value.videos)
+            assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `a page from a previous channel cannot mix videos into the active one`() =
+        runTest {
+            val first = video("first")
+            val pending = CompletableDeferred<ChannelVideosPage>()
+            coEvery { repository.getChannelDetails("UC1") } returns channel()
+            coEvery { repository.getChannelDetails("UC2") } returns channel()
+            coEvery { repository.refreshFeed(any()) } returns Result.success(listOf(first))
+            coEvery { repository.getChannelVideos("UC1", null) } coAnswers { pending.await() }
+
+            val viewModel = ChannelViewModel(repository)
+            viewModel.loadChannelDetails("UC1")
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.loadMore()
+
+            viewModel.loadChannelDetails("UC2")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            pending.complete(ChannelVideosPage(listOf(video("stale")), continuation = null))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf(first), viewModel.uiState.value.videos)
+            assertFalse(viewModel.uiState.value.isLoadingMore)
         }
 
     private fun channel() =

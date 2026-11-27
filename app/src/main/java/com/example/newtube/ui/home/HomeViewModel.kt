@@ -43,11 +43,21 @@ class HomeViewModel @Inject constructor(
 
     private val cache = mutableMapOf<HomeCategory, List<Video>>()
 
+    /** The category whose feed is currently shown; guards cross-category state. */
+    private var displayedCategory: HomeCategory? = null
+
     /** Incremented by every fetch; stale responses compare against it and bail out. */
     private var requestToken = 0
 
     /** Live fetches, so a stale response cannot clear a newer refresh indicator. */
     private var inFlight = 0
+
+    /** While caches are being cleared, pre-clear Room emissions must be ignored. */
+    private var clearInFlight = 0
+    private var preferencesGeneration = 0
+
+    /** After a preference change, only a fresh refresh may publish a feed. */
+    private var awaitFreshFeed = false
 
     init {
         // Stale-while-revalidate: Room publishes the cached feed before the
@@ -58,8 +68,10 @@ class HomeViewModel @Inject constructor(
                     repository.observeFeed(FeedKey.Home(category)).map { category to it }
                 }
                 .collect { (category, cached) ->
+                    if (clearInFlight > 0 || awaitFreshFeed) return@collect
                     if (category == _selectedCategory.value && cached.isNotEmpty()) {
                         cache[category] = cached
+                        displayedCategory = category
                         _uiState.value = UiState.Success(cached)
                     }
                 }
@@ -76,12 +88,25 @@ class HomeViewModel @Inject constructor(
 
     /** Region/language changed: cached feeds must be replaced, not shown stale. */
     fun onContentPreferencesChanged() {
+        val generation = ++preferencesGeneration
+        clearInFlight += 1
+        awaitFreshFeed = true
         cache.clear()
+        displayedCategory = null
         _uiState.value = UiState.Loading
         viewModelScope.launch {
-            repository.clearFeedCaches()
-            load()
-            loadShortsShelf()
+            try {
+                repository.clearFeedCaches()
+            } catch (_: Exception) {
+                // Clearing is best effort: the reload below still publishes a
+                // fresh feed and must not leave the screen stuck on Loading.
+            } finally {
+                clearInFlight = (clearInFlight - 1).coerceAtLeast(0)
+                if (generation == preferencesGeneration) {
+                    load()
+                    loadShortsShelf()
+                }
+            }
         }
     }
 
@@ -90,6 +115,7 @@ class HomeViewModel @Inject constructor(
         _selectedCategory.value = category
         val cached = cache[category]
         if (cached != null) {
+            displayedCategory = category
             _uiState.value = UiState.Success(cached)
             return
         }
@@ -119,19 +145,22 @@ class HomeViewModel @Inject constructor(
     private fun fetch(showLoading: Boolean) {
         val token = ++requestToken
         val category = _selectedCategory.value
+        // Only a same-key refresh may keep an existing Success on screen.
+        val keepCached = displayedCategory == category
         inFlight += 1
         _isRefreshing.value = true
-        // A cached feed is kept on screen while it is revalidated.
-        if (showLoading && _uiState.value !is UiState.Success) _uiState.value = UiState.Loading
+        if (showLoading && !keepCached) _uiState.value = UiState.Loading
         viewModelScope.launch {
             try {
                 val feed = repository.refreshFeed(FeedKey.Home(category)).getOrThrow()
                 if (token != requestToken) return@launch
                 cache[category] = feed
+                displayedCategory = category
+                awaitFreshFeed = false
                 _uiState.value = UiState.Success(feed)
             } catch (e: Exception) {
                 if (token != requestToken) return@launch
-                if (_uiState.value !is UiState.Success) {
+                if (displayedCategory != category) {
                     _uiState.value = UiState.Error(e.toUserMessage())
                 }
             } finally {

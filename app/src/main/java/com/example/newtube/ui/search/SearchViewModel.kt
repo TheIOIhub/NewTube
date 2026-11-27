@@ -42,6 +42,9 @@ class SearchViewModel @Inject constructor(
     /** Page 1 of the active query; null while the search field is blank. */
     private val activeQuery = MutableStateFlow<String?>(null)
 
+    /** The query whose results are currently shown; guards cross-query state. */
+    private var displayedQuery: String? = null
+
     private var query = ""
     private var nextPage = 1
     private var loading = false
@@ -64,6 +67,7 @@ class SearchViewModel @Inject constructor(
                 }
                 .collect { (term, cached) ->
                     if (term != null && term == activeQuery.value && cached.isNotEmpty()) {
+                        displayedQuery = term
                         _uiState.value = UiState.Success(cached)
                         reachedEnd = false
                     }
@@ -76,11 +80,14 @@ class SearchViewModel @Inject constructor(
         if (trimmed == query) return
         query = trimmed
         val token = ++requestToken
+        displayedQuery = null
         searchJob?.cancel()
         suggestionsJob?.cancel()
         reachedEnd = false
         nextPage = 1
         activeQuery.value = trimmed.takeIf { it.isNotBlank() }
+        // Results from the previous query must not appear under the new one.
+        _uiState.value = UiState.Success(emptyList())
         if (trimmed.isBlank()) {
             _suggestions.value = emptyList()
             _uiState.value = UiState.Success(emptyList())
@@ -107,6 +114,8 @@ class SearchViewModel @Inject constructor(
         val trimmed = value.trim()
         query = trimmed
         val token = ++requestToken
+        displayedQuery = null
+        _uiState.value = UiState.Success(emptyList())
         suggestionsJob?.cancel()
         _suggestions.value = emptyList()
         if (trimmed.isBlank()) {
@@ -135,8 +144,8 @@ class SearchViewModel @Inject constructor(
     }
 
     fun loadMore() {
-        val current = _uiState.value as? UiState.Success ?: return
-        if (query.isBlank() || loading || reachedEnd) return
+        if (_uiState.value !is UiState.Success || query.isBlank() || loading || reachedEnd) return
+        val token = requestToken
         loading = true
         _isLoadingMore.value = true
         viewModelScope.launch {
@@ -145,15 +154,22 @@ class SearchViewModel @Inject constructor(
                 // Page > 1 needs the in-memory continuation cursor, so it keeps
                 // the existing search() path instead of refreshFeed().
                 val results = repository.search(query, page)
+                if (token != requestToken || query != activeQuery.value) return@launch
+                // A page-1 refresh may have finished while this page was in
+                // flight: append to what is on screen now, not to a snapshot.
+                val current = _uiState.value as? UiState.Success ?: return@launch
                 nextPage = page + 1
                 if (results.isEmpty()) reachedEnd = true
+                displayedQuery = query
                 _uiState.value =
                     UiState.Success((current.data + results).distinctBy { it.id })
             } catch (e: Exception) {
                 // Keep the current results, the footer stays so the user can retry.
             } finally {
-                loading = false
-                _isLoadingMore.value = false
+                if (token == requestToken) {
+                    loading = false
+                    _isLoadingMore.value = false
+                }
             }
         }
     }
@@ -162,16 +178,20 @@ class SearchViewModel @Inject constructor(
         loading = true
         nextPage = 2
         reachedEnd = false
+        // Page 1 supersedes any in-flight pagination; its footer no longer applies.
+        _isLoadingMore.value = false
         _isRefreshing.value = true
         try {
             val results = repository.refreshFeed(FeedKey.Search(query, 1)).getOrThrow()
             if (token != requestToken) return
             if (results.isEmpty()) reachedEnd = true
+            displayedQuery = query
             _uiState.value = UiState.Success(results)
         } catch (e: Exception) {
             if (token != requestToken) return
-            // A failed refresh must not replace a usable cached result list.
-            if (_uiState.value !is UiState.Success) {
+            // Preserve results only when they belong to this query; a failed
+            // new query must not inherit the previous query's list.
+            if (displayedQuery != query) {
                 _uiState.value = UiState.Error(e.toUserMessage())
             }
         } finally {

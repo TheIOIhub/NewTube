@@ -246,6 +246,64 @@ class HomeViewModelTest {
             assertFalse(viewModel.isRefreshing.value)
         }
 
+    @Test
+    fun `switching to a category without a cache drops the previous feed on failure`() =
+        runTest {
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) } returns
+                Result.success(listOf(video("all")))
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.GAMING)) } returns
+                Result.failure(IOException("offline"))
+
+            val viewModel = HomeViewModel(repository, settingsRepository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("all"))), viewModel.uiState.value)
+
+            viewModel.selectCategory(HomeCategory.GAMING)
+            assertTrue(viewModel.uiState.value is UiState.Loading)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value is UiState.Error)
+            assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `a failing cache clear still reloads the feed`() =
+        runTest {
+            every { repository.observeFeed(FeedKey.Home(HomeCategory.ALL)) } returns
+                flowOf(listOf(video("stale")))
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) } returns
+                Result.success(listOf(video("fresh")))
+            coEvery { repository.clearFeedCaches() } throws IOException("offline")
+
+            val viewModel = HomeViewModel(repository, settingsRepository)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onContentPreferencesChanged()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+            assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `a pre-clear cached emission cannot repopulate the feed`() =
+        runTest {
+            val cachedFeed = MutableStateFlow(listOf(video("stale")))
+            every { repository.observeFeed(FeedKey.Home(HomeCategory.ALL)) } returns cachedFeed
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) } returns
+                Result.success(listOf(video("fresh")))
+            coEvery { repository.clearFeedCaches() } coAnswers { cachedFeed.value = emptyList() }
+
+            val viewModel = HomeViewModel(repository, settingsRepository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("stale"))), viewModel.uiState.value)
+
+            viewModel.onContentPreferencesChanged()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+        }
+
     private fun video(id: String) =
         Video(
             id = id,

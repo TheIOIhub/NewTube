@@ -212,6 +212,55 @@ class SearchViewModelTest {
             assertFalse(viewModel.isRefreshing.value)
         }
 
+    @Test
+    fun `switching to a query without cached results clears the old list`() =
+        runTest {
+            coEvery { repository.refreshFeed(FeedKey.Search("first", 1)) } returns
+                Result.success(listOf(video("old")))
+            coEvery { repository.refreshFeed(FeedKey.Search("second", 1)) } returns
+                Result.failure(IOException("offline"))
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("first")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("old"))), viewModel.uiState.value)
+
+            viewModel.onQueryChange("second")
+            assertEquals(UiState.Success(emptyList<Video>()), viewModel.uiState.value)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value is UiState.Error)
+            assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `a stale page append cannot overwrite fresh page one results`() =
+        runTest {
+            val secondPage = CompletableDeferred<List<Video>>()
+            coEvery { repository.refreshFeed(FeedKey.Search("q", 1)) } returnsMany
+                listOf(
+                    Result.success(listOf(video("old"))),
+                    Result.success(listOf(video("fresh"))),
+                )
+            coEvery { repository.search("q", 2) } coAnswers { secondPage.await() }
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("q")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("old"))), viewModel.uiState.value)
+
+            viewModel.loadMore()
+            viewModel.retry()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+
+            secondPage.complete(listOf(video("page2")))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+            assertFalse(viewModel.isLoadingMore.value)
+        }
+
     private fun video(id: String) =
         Video(
             id = id,
