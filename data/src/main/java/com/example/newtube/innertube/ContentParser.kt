@@ -231,18 +231,29 @@ object ContentParser {
 
     private fun firstContinuation(root: JsonElement): String? {
         var token: String? = null
+        // Page continuations are preferred so a comment's reply command cannot win.
         InnerTubeParser.walk(root) { obj ->
             if (token == null) {
-                token =
-                    if (obj.containsKey("continuationItemRenderer")) {
-                        obj.value("continuationItemRenderer", "continuationCommand", "token")
-                            ?: obj.value("continuationItemRenderer", "nextContinuationData", "continuation")
-                    } else {
-                        obj.value("nextContinuationData", "continuation")
-                    }
+                token = obj.explicitContinuation() ?: obj.value("nextContinuationData", "continuation")
+            }
+        }
+        if (token == null) {
+            InnerTubeParser.walk(root) { obj ->
+                if (token == null) {
+                    token =
+                        obj.value("continuationCommand", "token")
+                            ?: obj.value("continuationEndpoint", "continuationCommand", "token")
+                }
             }
         }
         return token?.takeIf { it.isNotBlank() }
+    }
+
+    private fun JsonObject.explicitContinuation(): String? {
+        if (!containsKey("continuationItemRenderer")) return null
+        return value("continuationItemRenderer", "continuationCommand", "token")
+            ?: value("continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
+            ?: value("continuationItemRenderer", "nextContinuationData", "continuation")
     }
 
     private fun totalComments(root: JsonElement): Long {

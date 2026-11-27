@@ -47,7 +47,9 @@
             },
             {
               "continuationItemRenderer": {
-                "continuationCommand": { "token": "COMMENTS_CONTINUATION_TOKEN" }
+                "continuationEndpoint": {
+                  "continuationCommand": { "token": "COMMENTS_CONTINUATION_TOKEN" }
+                }
               }
             }
           ]

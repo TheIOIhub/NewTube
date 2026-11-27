@@ -123,6 +123,16 @@ class ContentParserTest {
     }
 
     @Test
+    fun `continuation is read from nested and generic continuation commands`() {
+        val nested =
+            """{"contents":[{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"NESTED_CONTINUATION_TOKEN"}}}}]}"""
+        val generic = """{"contents":[{"continuationCommand":{"token":"GENERIC_CONTINUATION_TOKEN"}}]}"""
+
+        assertEquals("NESTED_CONTINUATION_TOKEN", ContentParser.parseFeed(nested).continuation)
+        assertEquals("GENERIC_CONTINUATION_TOKEN", ContentParser.parseFeed(generic).continuation)
+    }
+
+    @Test
     fun `parseComments reads next response`() {
         val page = ContentParser.parseComments(next)
 
