@@ -31,5 +31,18 @@ class PlaybackSourceMapperTest {
         val s = PlaybackSource.Merged("https://x/v", "https://x/a")
         assertEquals("https://x/v", s.videoUrl)
         assertEquals("https://x/a", s.audioUrl)
+        assertEquals(emptyList<String>(), s.audioAlternatives)
+    }
+
+    @Test
+    fun `merged source keeps language tagged audio alternatives`() {
+        val s =
+            PlaybackSource.Merged(
+                videoUrl = "https://x/v",
+                audioUrl = "https://x/a-uk",
+                audioAlternatives = listOf("https://x/a-uk", "https://x/a-en"),
+            )
+
+        assertEquals(listOf("https://x/a-uk", "https://x/a-en"), s.audioAlternatives)
     }
 }

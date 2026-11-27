@@ -23,5 +23,9 @@ sealed interface PlaybackSource {
 
     data class Progressive(val url: String) : PlaybackSource
 
-    data class Merged(val videoUrl: String, val audioUrl: String) : PlaybackSource
+    data class Merged(
+        val videoUrl: String,
+        val audioUrl: String,
+        val audioAlternatives: List<String> = emptyList(),
+    ) : PlaybackSource
 }

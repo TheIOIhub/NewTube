@@ -16,5 +16,6 @@ data class FormatStreamDto(
     val container: String? = null,
     val qualityLabel: String? = null,
     val audioQuality: String? = null,
+    val language: String? = null,
     val bitrate: String? = null,
 )

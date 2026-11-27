@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -45,6 +46,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -52,6 +54,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.newtube.R
 import com.example.newtube.di.PlaybackCacheEntryPoint
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import dagger.hilt.android.EntryPointAccessors
 
@@ -80,12 +83,18 @@ fun VideoPlayer(
     onToggleFullscreen: () -> Unit = {},
     onSavePosition: (Long) -> Unit = {},
     tapToTogglePlayback: Boolean = false,
+    preferredAudioLanguage: String = "uk",
+    showAudioControl: Boolean = true,
+    onResizeModeChange: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     var quality by rememberSaveable { mutableStateOf(AUTO_QUALITY) }
     var availableHeights by remember { mutableStateOf<List<Int>>(emptyList()) }
     var qualityMenuOpen by remember { mutableStateOf(false) }
+    var audioMenuOpen by remember { mutableStateOf(false) }
+    var audioOptions by remember { mutableStateOf<List<AudioTrackOption>>(emptyList()) }
+    var selectedAudioKey by rememberSaveable { mutableStateOf<String?>(null) }
     var isBuffering by remember { mutableStateOf(true) }
     var playbackError by remember { mutableStateOf<String?>(null) }
 
@@ -134,8 +143,9 @@ fun VideoPlayer(
         }
     }
 
-    LaunchedEffect(quality) {
-        val parameters = trackSelector.buildUponParameters()
+    LaunchedEffect(quality, preferredAudioLanguage) {
+        val parameters =
+            trackSelector.buildUponParameters().setPreferredAudioLanguage(preferredAudioLanguage)
         if (quality == AUTO_QUALITY) {
             parameters.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
         } else {
@@ -180,6 +190,20 @@ fun VideoPlayer(
                                 }
                             }.distinct()
                             .sortedDescending()
+                val options = tracks.audioOptions()
+                audioOptions = options
+                val key = selectedAudioKey
+                if (key != null) {
+                    options.firstOrNull { it.key == key }?.let { option ->
+                        trackSelector.setParameters(
+                            trackSelector
+                                .buildUponParameters()
+                                .setOverrideForType(
+                                    TrackSelectionOverride(option.group.mediaTrackGroup, option.index),
+                                ),
+                        )
+                    }
+                }
                 }
             }
         exoPlayer.addListener(listener)
@@ -226,6 +250,7 @@ fun VideoPlayer(
                 }
             },
             modifier = Modifier.fillMaxSize(),
+            update = { view -> view.resizeMode = resizeMode },
         )
 
         if (tapToTogglePlayback) {
@@ -274,6 +299,33 @@ fun VideoPlayer(
             }
         }
 
+        val audioAlternatives = (playback as? PlaybackSource.Merged)?.audioAlternatives.orEmpty()
+        val showAudioButton = showAudioControl && (audioOptions.size >= 2 || audioAlternatives.size >= 2)
+
+        fun applyAudioOption(option: AudioTrackOption) {
+            selectedAudioKey = option.key
+            trackSelector.setParameters(
+                trackSelector
+                    .buildUponParameters()
+                    .setOverrideForType(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)),
+            )
+            audioMenuOpen = false
+        }
+
+        fun applyAudioAlternative(url: String) {
+            val merged = playback as? PlaybackSource.Merged ?: return
+            val savedPosition = exoPlayer.currentPosition
+            currentOnSavePosition(savedPosition)
+            exoPlayer.stop()
+            exoPlayer.setMediaSource(
+                merged.copy(audioUrl = url).toMediaSource(context, cachedDataSourceFactory),
+            )
+            exoPlayer.prepare()
+            exoPlayer.seekTo(savedPosition)
+            exoPlayer.playWhenReady = true
+            audioMenuOpen = false
+        }
+
         Row(
             modifier =
                 Modifier
@@ -281,6 +333,54 @@ fun VideoPlayer(
                     .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (showAudioButton) {
+                Box {
+                    TextButton(onClick = { audioMenuOpen = true }) {
+                        Text("Аудіо", color = Color.White)
+                    }
+                    DropdownMenu(
+                        expanded = audioMenuOpen,
+                        onDismissRequest = { audioMenuOpen = false },
+                    ) {
+                        audioOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                onClick = { applyAudioOption(option) },
+                            )
+                        }
+                        audioAlternatives.forEachIndexed { index, url ->
+                            DropdownMenuItem(
+                                text = { Text("Доріжка ${index + 1}") },
+                                onClick = { applyAudioAlternative(url) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            TextButton(
+                onClick = {
+                    val next =
+                        when (resizeMode) {
+                            AppSettings.RESIZE_FIT -> AppSettings.RESIZE_FILL
+                            AppSettings.RESIZE_FILL -> AppSettings.RESIZE_ZOOM
+                            else -> AppSettings.RESIZE_FIT
+                        }
+                    onResizeModeChange(next)
+                },
+            ) {
+                Text(
+                    text =
+                        stringResource(
+                            when (resizeMode) {
+                                AppSettings.RESIZE_FILL -> R.string.resize_fill
+                                AppSettings.RESIZE_ZOOM -> R.string.resize_zoom
+                                else -> R.string.resize_fit
+                            },
+                        ),
+                )
+            }
+
             if (showQualityControl) {
                 Box {
                     TextButton(

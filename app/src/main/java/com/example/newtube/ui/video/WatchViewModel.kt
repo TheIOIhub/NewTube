@@ -13,8 +13,10 @@ import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.toUserMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -32,6 +34,13 @@ class WatchViewModel @Inject constructor(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<UiState<WatchUiState>>(UiState.Loading)
     val uiState: StateFlow<UiState<WatchUiState>> = _uiState
+
+    val settings: StateFlow<AppSettings> =
+        settingsRepository.settings.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = AppSettings(),
+        )
 
     private var videoId: String = ""
 
@@ -66,6 +75,10 @@ class WatchViewModel @Inject constructor(
                 _uiState.value = UiState.Error(e.toUserMessage())
             }
         }
+    }
+
+    fun setResizeMode(mode: Int) {
+        viewModelScope.launch { settingsRepository.update { it.copy(resizeMode = mode) } }
     }
 
     fun savePosition(positionMs: Long) {

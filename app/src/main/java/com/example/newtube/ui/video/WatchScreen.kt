@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.example.newtube.R
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.Video
 import com.example.newtube.ui.common.ChannelAvatar
 import com.example.newtube.ui.common.ErrorScreen
@@ -54,6 +55,7 @@ fun WatchScreen(
     }
 
     val uiState by viewModel.uiState.collectAsState()
+    val settings by viewModel.settings.collectAsState()
     val inPip = LocalPipMode.current
 
     when (val state = uiState) {
@@ -73,7 +75,14 @@ fun WatchScreen(
                     onSavePosition = viewModel::savePosition,
                 )
             } else {
-                WatchContent(navController, videoId, watch, viewModel::savePosition)
+                WatchContent(
+                    navController,
+                    videoId,
+                    watch,
+                    settings,
+                    viewModel::savePosition,
+                    viewModel::setResizeMode,
+                )
             }
         }
     }
@@ -84,7 +93,9 @@ private fun WatchContent(
     navController: NavHostController,
     videoId: String,
     watch: WatchUiState,
+    settings: AppSettings,
     onSavePosition: (Long) -> Unit,
+    onResizeModeChange: (Int) -> Unit,
 ) {
     var isFullscreen by rememberSaveable { mutableStateOf(false) }
     val details = watch.details
@@ -103,6 +114,9 @@ private fun WatchContent(
             isFullscreen = isFullscreen,
             onToggleFullscreen = { isFullscreen = !isFullscreen },
             onSavePosition = onSavePosition,
+            resizeMode = settings.resizeMode,
+            preferredAudioLanguage = settings.preferredAudioLanguage,
+            onResizeModeChange = onResizeModeChange,
         )
 
         if (!isFullscreen) {

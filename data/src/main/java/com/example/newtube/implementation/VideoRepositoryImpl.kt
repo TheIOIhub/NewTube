@@ -485,7 +485,17 @@ class VideoRepositoryImpl @Inject constructor(
 
         val videoUrl = adaptiveFormats.bestVideoUrl(cap)
         val audioUrl = adaptiveFormats.bestAudioUrl()
-        if (videoUrl != null && audioUrl != null) return PlaybackSource.Merged(videoUrl, audioUrl)
+        if (videoUrl != null && audioUrl != null) {
+            val alternatives =
+                adaptiveFormats
+                    .filter { format ->
+                        format.type?.startsWith("audio/") == true &&
+                            !format.language.isNullOrBlank() &&
+                            !format.url.isNullOrBlank()
+                    }.mapNotNull { it.url }
+                    .distinct()
+            return PlaybackSource.Merged(videoUrl, audioUrl, alternatives)
+        }
 
         // Last resort: accept a progressive track above the cap, then HLS.
         formatStreams.firstPlayableUrl()?.let { return PlaybackSource.Progressive(it) }
