@@ -38,7 +38,7 @@ data class AppSettings(
         const val RESIZE_FILL = 3
         const val RESIZE_ZOOM = 4
 
-        val QUALITY_OPTIONS = listOf(480, 720, 1080)
+        val QUALITY_OPTIONS = listOf(144, 240, 360, 480, 720, 1080, 1440, 2160)
         val SEEK_OPTIONS = listOf(5, 10, 15, 30)
         val RESIZE_OPTIONS = listOf(RESIZE_FIT, RESIZE_FILL, RESIZE_ZOOM)
         val VALID_COUNTRIES =

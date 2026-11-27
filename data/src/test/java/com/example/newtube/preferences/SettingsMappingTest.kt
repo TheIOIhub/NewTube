@@ -125,6 +125,19 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `the extended quality options are accepted`() {
+        val expected = listOf(144, 240, 360, 480, 720, 1080, 1440, 2160)
+        assertEquals(expected, AppSettings.QUALITY_OPTIONS)
+
+        expected.forEach { quality ->
+            assertEquals(
+                quality,
+                preferencesOf(intPreferencesKey("default_quality") to quality).toAppSettings().defaultQuality,
+            )
+        }
+    }
+
+    @Test
     fun `unknown theme and quality fall back to safe defaults`() {
         val settings =
             preferencesOf(

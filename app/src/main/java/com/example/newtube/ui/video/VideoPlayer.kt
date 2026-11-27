@@ -336,7 +336,8 @@ fun VideoPlayer(
         }
 
         val audioAlternatives = (playback as? PlaybackSource.Merged)?.audioAlternatives.orEmpty()
-        val showAudioButton = showAudioControl && (audioOptions.size >= 2 || audioAlternatives.size >= 2)
+        val showAudioButton =
+            audioButtonVisible(showAudioControl, audioOptions.size, audioAlternatives.size)
 
         fun applyAudioOption(option: AudioTrackOption) {
             selectedAudioKey = option.key
@@ -378,6 +379,18 @@ fun VideoPlayer(
                         expanded = audioMenuOpen,
                         onDismissRequest = { audioMenuOpen = false },
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("Авто") },
+                            onClick = {
+                                selectedAudioKey = null
+                                trackSelector.setParameters(
+                                    trackSelector
+                                        .buildUponParameters()
+                                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO),
+                                )
+                                audioMenuOpen = false
+                            },
+                        )
                         audioOptions.forEach { option ->
                             DropdownMenuItem(
                                 text = { Text(option.label) },
@@ -436,7 +449,10 @@ fun VideoPlayer(
                                 qualityMenuOpen = false
                             },
                         )
-                        availableHeights.forEach { height ->
+                        (AppSettings.QUALITY_OPTIONS + availableHeights)
+                            .distinct()
+                            .sortedDescending()
+                            .forEach { height ->
                             DropdownMenuItem(
                                 text = { Text("$height" + "p") },
                                 onClick = {

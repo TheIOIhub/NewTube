@@ -2,6 +2,7 @@ package com.example.newtube.ui.video
 
 import androidx.media3.common.C
 import androidx.media3.common.Tracks
+import com.example.newtube.ui.settings.languageDisplayName
 
 internal data class AudioTrackOption(
     val key: String,
@@ -9,6 +10,13 @@ internal data class AudioTrackOption(
     val group: Tracks.Group,
     val index: Int,
 )
+
+/** The control stays visible even with one track so users can always inspect it. */
+internal fun audioButtonVisible(
+    showControl: Boolean,
+    optionCount: Int,
+    alternativeCount: Int,
+): Boolean = showControl
 
 /** Builds the audio menu from live Media3 metadata, not from hard-coded indices. */
 internal fun Tracks.audioOptions(): List<AudioTrackOption> =
@@ -24,7 +32,7 @@ internal fun Tracks.audioOptions(): List<AudioTrackOption> =
                 val role = roleLabel(format.roleFlags)
                 AudioTrackOption(
                     key = "$language|$role|$index",
-                    label = "$language ($role)",
+                    label = "${languageDisplayName(language)} ($role)",
                     group = group,
                     index = index,
                 )

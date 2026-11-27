@@ -25,9 +25,14 @@
 
     <string name="settings_playback">Відтворення</string>
     <string name="settings_max_quality">Максимальна якість</string>
+    <string name="quality_144">144p</string>
+    <string name="quality_240">240p</string>
+    <string name="quality_360">360p</string>
     <string name="quality_480">480p</string>
     <string name="quality_720">720p</string>
     <string name="quality_1080">1080p</string>
+    <string name="quality_1440">1440p</string>
+    <string name="quality_2160">2160p</string>
 
     <string name="settings_about">Про застосунок</string>
     <string name="about_account_note">Функції акаунта використовують TV OAuth Google; YouTube може будь-коли скасувати сесію.</string>
