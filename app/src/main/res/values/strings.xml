@@ -96,8 +96,8 @@
 
     <string name="about_title">Про NewTube</string>
     <string name="about_version">Версія %1$s</string>
-    <string name="about_instance">Invidious: %1$s</string>
-    <string name="about_legal">NewTube не пов’язаний із YouTube чи Google. Відео відтворюються через публічні інстанси Invidious.</string>
+    <string name="about_source">Джерело даних: YouTube InnerTube</string>
+    <string name="about_legal">NewTube не пов’язаний із YouTube чи Google. Відео та канали надходять безпосередньо з YouTube.</string>
 
     <string name="search_hint">Пошук на YouTube</string>
     <string name="search_clear">Очистити</string>

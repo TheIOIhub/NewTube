@@ -16,7 +16,7 @@ import java.util.TimeZone
 /**
  * Posts the TV client body to InnerTube and returns the raw response so the
  * parser stays independently testable. Only account endpoints are called here;
- * browsing and playback keep using Invidious.
+ * content feeds and playback use `YouTubeContentClient`.
  */
 class YouTubeInnerTubeService(
     private val client: OkHttpClient,

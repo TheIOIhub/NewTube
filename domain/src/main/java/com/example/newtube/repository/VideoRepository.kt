@@ -9,10 +9,10 @@ import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
 
 interface VideoRepository {
-    /** Trending is not paginated by Invidious: one request returns the whole feed. */
+    /** Trending is one browse response; pagination uses its continuation token. */
     suspend fun getTrending(): List<Video>
 
-    /** Mixed feed for a Home category; sources are shuffled on every call. */
+    /** One native YouTube browse feed per Home category. */
     suspend fun getHomeFeed(category: HomeCategory): List<Video>
 
     /** Regionalised feed ranked by local history and subscriptions. */
@@ -21,15 +21,15 @@ interface VideoRepository {
     /** Called after a region/language change; drops channel rotation and cached feeds. */
     suspend fun clearFeedCaches()
 
-    /** Shorts feed emulated with a `#shorts` search, filtered to 1..60 seconds. */
+    /** Native Shorts feed, capped at 180 seconds (missing duration means a reel). */
     suspend fun getShorts(page: Int = 1): List<Video>
 
-    /** One lightweight `#shorts` search for the Home shelf; does not touch the Shorts tab rotation. */
+    /** One lightweight browse for the Home reel shelf; does not move the Shorts cursor. */
     suspend fun getShortsShelf(limit: Int = 8): List<Video>
 
     suspend fun search(query: String, page: Int = 1): List<Video>
 
-    /** Up to a handful of query completions from Invidious; empty on failure. */
+    /** Up to a handful of query completions from YouTube; empty on failure. */
     suspend fun searchSuggestions(query: String): List<String>
 
     suspend fun getVideoById(videoId: String): Video

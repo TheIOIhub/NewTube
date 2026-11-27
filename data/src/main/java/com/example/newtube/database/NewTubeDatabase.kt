@@ -24,7 +24,7 @@ abstract class NewTubeDatabase : RoomDatabase() {
 
         /**
          * v2 adds `VideoEntity.channelId`, which is what the channel screen
-         * needs: Invidious only resolves channels by their `UC…` id.
+         * needs: channels are resolved by their `UC…` id.
          */
         val MIGRATION_1_2 =
             object : Migration(1, 2) {

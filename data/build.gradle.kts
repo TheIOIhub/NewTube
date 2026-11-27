@@ -10,11 +10,6 @@ android {
     defaultConfig {
         minSdk = 24
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField(
-            "String",
-            "INVIDIOUS_BASE_URL",
-            "\"${project.findProperty("invidiousBaseUrl") ?: "https://yt.chocolatemoo53.com/"}\"",
-        )
         // Empty by default: the bundled config in code is authoritative until we
         // host our own config JSON. Override with -PcontentConfigUrl=<url>.
         buildConfigField(

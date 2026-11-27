@@ -4,7 +4,7 @@ import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.VideoDao
 import com.example.newtube.implementation.ShortsCacheRepositoryImpl
 import com.example.newtube.implementation.VideoRepositoryImpl
-import com.example.newtube.remote.InvidiousService
+import com.example.newtube.innertube.YouTubeContentClient
 import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
 import dagger.Binds
@@ -25,7 +25,7 @@ abstract class RepositoryModule {
         @Provides
         @Singleton
         fun provideVideoRepository(
-            service: InvidiousService,
+            contentClient: YouTubeContentClient,
             dao: VideoDao,
             channelDao: ChannelDao,
             shortsCache: ShortsCacheRepository,
@@ -34,7 +34,7 @@ abstract class RepositoryModule {
             accountRepository: com.example.newtube.repository.AccountRepository,
         ): VideoRepository =
             VideoRepositoryImpl(
-                service,
+                contentClient,
                 dao,
                 channelDao,
                 shortsCache,

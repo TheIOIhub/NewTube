@@ -14,7 +14,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.newtube.R
-import com.example.newtube.data.BuildConfig
 import com.example.newtube.ui.shell.DetailTopBar
 
 @Composable
@@ -36,7 +35,7 @@ fun AboutScreen(navController: NavController) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = stringResource(R.string.about_instance, BuildConfig.INVIDIOUS_BASE_URL),
+                text = stringResource(R.string.about_source),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
