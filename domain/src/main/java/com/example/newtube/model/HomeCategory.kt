@@ -2,6 +2,7 @@ package com.example.newtube.model
 
 /** Top-level feed tabs shown on the Home screen; labels live in the app layer. */
 enum class HomeCategory {
+    FOR_YOU,
     ALL,
     MUSIC,
     GAMING,

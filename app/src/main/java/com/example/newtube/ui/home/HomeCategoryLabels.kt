@@ -7,6 +7,7 @@ import com.example.newtube.model.HomeCategory
 @StringRes
 fun HomeCategory.labelRes(): Int =
     when (this) {
+        HomeCategory.FOR_YOU -> R.string.category_for_you
         HomeCategory.ALL -> R.string.category_all
         HomeCategory.MUSIC -> R.string.category_music
         HomeCategory.GAMING -> R.string.category_gaming

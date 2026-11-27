@@ -15,6 +15,9 @@ interface VideoRepository {
     /** Mixed feed for a Home category; sources are shuffled on every call. */
     suspend fun getHomeFeed(category: HomeCategory): List<Video>
 
+    /** Regionalised feed ranked by local history and subscriptions. */
+    suspend fun getForYouFeed(): List<Video>
+
     /** Shorts feed emulated with a `#shorts` search, filtered to 1..60 seconds. */
     suspend fun getShorts(page: Int = 1): List<Video>
 

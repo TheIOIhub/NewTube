@@ -8,4 +8,5 @@ dependencies {
     // PagingSource lives in the pure-Kotlin artifact; no Android runtime here.
     implementation("androidx.paging:paging-common:3.2.1")
     // Domain entities and use cases
+    testImplementation("junit:junit:4.13.2")
 }

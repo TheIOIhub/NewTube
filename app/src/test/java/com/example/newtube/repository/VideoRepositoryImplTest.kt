@@ -3,8 +3,10 @@ package com.example.newtube.repository
 import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.VideoDao
 import com.example.newtube.implementation.VideoRepositoryImpl
+import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.HomeCategory
+import com.example.newtube.model.WatchHistoryEntry
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.remote.ChannelSearchDto
 import com.example.newtube.remote.ChannelVideosDto
@@ -160,6 +162,37 @@ class VideoRepositoryImplTest {
                     any(),
                 )
             }
+        }
+
+    @Test
+    fun `getForYouFeed ranks a watched Ukrainian channel first`() =
+        runBlocking {
+            coEvery { service.getTrending(any(), any(), any()) } returns
+                listOf(
+                    videoDto("us").copy(title = "Breaking news", authorId = "UCus"),
+                    videoDto("ua").copy(title = "Новини України", authorId = "UCua"),
+                )
+            coEvery { service.getPopular() } returns emptyList()
+            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns emptyList()
+            coEvery { service.getShorts(any(), any(), any(), any(), any(), any()) } returns emptyList()
+            coEvery { accountRepository.state } returns MutableStateFlow(AccountState.SignedOut)
+            coEvery { historyRepository.observeLocal(500) } returns
+                flowOf(
+                    listOf(
+                        WatchHistoryEntry(
+                            videoId = "old",
+                            title = "Watched",
+                            channelName = "UA",
+                            channelId = "UCua",
+                            authorAvatarUrl = "",
+                            thumbnailUrl = "",
+                            durationMs = 1000L,
+                            watchedAt = System.currentTimeMillis(),
+                        ),
+                    ),
+                )
+
+            assertEquals("ua", repository.getForYouFeed().first().id)
         }
 
     @Test

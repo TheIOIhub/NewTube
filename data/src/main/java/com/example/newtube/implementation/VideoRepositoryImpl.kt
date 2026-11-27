@@ -4,6 +4,8 @@ import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.ChannelEntity
 import com.example.newtube.database.VideoDao
 import com.example.newtube.database.VideoEntity
+import com.example.newtube.model.AccountResult
+import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.Channel
 import com.example.newtube.model.ChannelVideosPage
@@ -11,8 +13,10 @@ import com.example.newtube.model.Comment
 import com.example.newtube.model.CommentPage
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.PlaybackSource
+import com.example.newtube.model.FeedSignals
 import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
+import com.example.newtube.usecase.rankFeed
 import com.example.newtube.implementation.VideoContentFilter.applyContentSettings
 import com.example.newtube.remote.ChannelDto
 import com.example.newtube.remote.CommentDto
@@ -90,6 +94,34 @@ class VideoRepositoryImpl @Inject constructor(
                 .take(HOME_FEED_LIMIT)
         }
 
+    override suspend fun getForYouFeed(): List<Video> =
+        withContext(Dispatchers.IO) {
+            val base = getHomeFeed(HomeCategory.ALL)
+            val settings = settingsRepository.settings.first()
+            val history = historyRepository.observeLocal(HISTORY_SIGNAL_LIMIT).first()
+            val now = System.currentTimeMillis()
+            val affinity =
+                history
+                    .groupBy { it.channelId }
+                    .mapValues { (_, entries) ->
+                        entries.maxOf { entry ->
+                            val ageDays = (now - entry.watchedAt).coerceAtLeast(0L) / DAY_MS
+                            1f / (1f + ageDays.toFloat())
+                        }
+                    }
+            val subscriptions =
+                if (accountRepository.state.value is AccountState.SignedIn) {
+                    runCatching {
+                        (accountRepository.subscriptions() as? AccountResult.Success)?.data?.items
+                            ?.map { it.channelId }
+                            ?.toSet()
+                    }.getOrDefault(null) ?: emptySet()
+                } else {
+                    emptySet()
+                }
+            rankFeed(base, FeedSignals(affinity, subscriptions, settings.contentLanguage))
+        }
+
     private sealed interface FeedSource {
         data class Trending(val type: String) : FeedSource
 
@@ -111,6 +143,7 @@ class VideoRepositoryImpl @Inject constructor(
 
     private fun HomeCategory.feedSources(): List<FeedSource> =
         when (this) {
+            HomeCategory.FOR_YOU -> listOf(FeedSource.Trending("Default"))
             HomeCategory.ALL ->
                 listOf(
                     FeedSource.Trending("Default"),
@@ -540,6 +573,8 @@ class VideoRepositoryImpl @Inject constructor(
 
     private companion object {
         const val HOME_FEED_LIMIT = 60
+        const val HISTORY_SIGNAL_LIMIT = 500
+        const val DAY_MS = 86_400_000L
         const val TOPIC_QUERY_COUNT = 3
         const val ALL_TOPIC_QUERY_COUNT = 2
         const val SHORTS_MAX_SECONDS = 180L

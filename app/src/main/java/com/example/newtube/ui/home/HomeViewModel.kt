@@ -96,7 +96,12 @@ class HomeViewModel @Inject constructor(
         if (showLoading) _uiState.value = UiState.Loading else _isRefreshing.value = true
         viewModelScope.launch {
             try {
-                val feed = repository.getHomeFeed(category)
+                val feed =
+                    if (category == HomeCategory.FOR_YOU) {
+                        repository.getForYouFeed()
+                    } else {
+                        repository.getHomeFeed(category)
+                    }
                 if (token != requestToken) return@launch
                 cache[category] = feed
                 _uiState.value = UiState.Success(feed)
