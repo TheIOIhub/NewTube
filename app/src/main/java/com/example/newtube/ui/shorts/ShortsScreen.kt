@@ -47,7 +47,6 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
-import coil.imageLoader
 import coil.request.ImageRequest
 import com.example.newtube.R
 import com.example.newtube.di.PlaybackCacheEntryPoint
@@ -57,6 +56,7 @@ import com.example.newtube.model.Video
 import com.example.newtube.ui.common.EmptyScreen
 import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.LoadingScreen
+import com.example.newtube.ui.common.ThumbnailUrls
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.video.PlayerGestureOverlay
 import dagger.hilt.android.EntryPointAccessors
@@ -78,15 +78,21 @@ fun ShortsScreen(
     }
 
     // Warm the shared ImageLoader so the first pages don't show a blank box.
+    // The effect is keyed by URLs: refreshing into an equal list does not
+    // re-enqueue already-scheduled prefetches.
     val context = LocalContext.current
-    LaunchedEffect(uiState) {
-        val state = uiState
-        if (state is UiState.Success) {
-            state.data.take(4).forEach { video ->
-                context.imageLoader.enqueue(
-                    ImageRequest.Builder(context).data(video.thumbnailUrl).build(),
-                )
-            }
+    val prefetchUrls =
+        remember(uiState) {
+            (uiState as? UiState.Success)
+                ?.data
+                .orEmpty()
+                .distinctBy { it.id }
+                .take(ThumbnailUrls.PREFETCH_COUNT)
+                .map { ThumbnailUrls.hq(it.id) }
+        }
+    LaunchedEffect(prefetchUrls) {
+        if (prefetchUrls.isNotEmpty()) {
+            ThumbnailUrls.prefetch(context, prefetchUrls, ThumbnailUrls.THUMBNAIL_SIZE_PX)
         }
     }
 
@@ -300,11 +306,20 @@ private fun ShortPage(
     onRetry: () -> Unit,
     settings: AppSettings,
 ) {
+    val context = LocalContext.current
+    val thumbnail =
+        remember(video.id, context) {
+            ImageRequest
+                .Builder(context)
+                .data(ThumbnailUrls.hq(video.id))
+                .size(ThumbnailUrls.THUMBNAIL_SIZE_PX)
+                .build()
+        }
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         // The thumbnail stays visible until the player has a surface of its own,
         // and is used as a placeholder for the pages around the active one.
         Image(
-            painter = rememberAsyncImagePainter(video.thumbnailUrl),
+            painter = rememberAsyncImagePainter(thumbnail),
             contentDescription = video.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),

@@ -6,6 +6,8 @@ import android.os.Build
 import android.os.LocaleList
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import com.example.newtube.repository.SettingsRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -17,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.Locale
 
 @EntryPoint
@@ -52,5 +55,19 @@ class MyApplication : Application(), ImageLoaderFactory {
         }
     }
 
-    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this).build()
+    override fun newImageLoader(): ImageLoader =
+        ImageLoader
+            .Builder(this)
+            .memoryCache {
+                MemoryCache.Builder(this).maxSizePercent(0.25).build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(File(filesDir, "image_cache"))
+                    .maxSizeBytes(128L * 1024 * 1024)
+                    .build()
+            }
+            .respectCacheHeaders(false)
+            .crossfade(false)
+            .build()
 }

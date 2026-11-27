@@ -28,8 +28,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -40,6 +42,7 @@ import com.example.newtube.R
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
 import com.example.newtube.ui.common.ShortsTile
+import com.example.newtube.ui.common.ThumbnailUrls
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.VideoCardSkeleton
@@ -56,6 +59,24 @@ fun HomeScreen(
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val shelf by viewModel.shortsShelf.collectAsState()
     val listState = rememberLazyListState()
+    val context = LocalContext.current
+
+    // Key on the URLs, not the UiState instance: repeated emissions of the
+    // same feed must not re-enqueue the first cards' prefetches.
+    val prefetchUrls =
+        remember(uiState) {
+            (uiState as? UiState.Success)
+                ?.data
+                .orEmpty()
+                .take(ThumbnailUrls.PREFETCH_COUNT)
+                .map { ThumbnailUrls.hq(it.id) }
+        }
+    LaunchedEffect(prefetchUrls) {
+        if (prefetchUrls.isNotEmpty()) {
+            ThumbnailUrls.prefetch(context, prefetchUrls, ThumbnailUrls.THUMBNAIL_SIZE_PX)
+        }
+    }
+
     val openShort: (String) -> Unit = { videoId ->
         navController.navigate("shorts?videoId=$videoId") {
             popUpTo(navController.graph.startDestinationId) { saveState = true }
