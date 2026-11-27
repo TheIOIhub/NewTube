@@ -1,15 +1,19 @@
 package com.example.newtube.ui.home
 
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
+import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.every
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -24,11 +28,13 @@ import java.io.IOException
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
     private val repository: VideoRepository = mockk()
+    private val settingsRepository: SettingsRepository = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        every { settingsRepository.settings } returns flowOf(AppSettings())
         coEvery { repository.getShortsShelf() } returns emptyList()
     }
 
@@ -43,7 +49,7 @@ class HomeViewModelTest {
             val videos = listOf(video("1"))
             coEvery { repository.getHomeFeed(HomeCategory.ALL) } returns videos
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(HomeCategory.ALL, viewModel.selectedCategory.value)
@@ -55,7 +61,7 @@ class HomeViewModelTest {
         runTest {
             coEvery { repository.getHomeFeed(HomeCategory.ALL) } throws IOException("offline")
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             testDispatcher.scheduler.advanceUntilIdle()
 
             val state = viewModel.uiState.value
@@ -68,7 +74,7 @@ class HomeViewModelTest {
         runTest {
             coEvery { repository.getHomeFeed(HomeCategory.ALL) } throws IOException("offline")
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             testDispatcher.scheduler.advanceUntilIdle()
             assertTrue(viewModel.uiState.value is UiState.Error)
 
@@ -86,7 +92,7 @@ class HomeViewModelTest {
             coEvery { repository.getHomeFeed(HomeCategory.ALL) } returns listOf(video("all"))
             coEvery { repository.getHomeFeed(HomeCategory.GAMING) } returns listOf(video("game"))
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.selectCategory(HomeCategory.GAMING)
@@ -106,7 +112,7 @@ class HomeViewModelTest {
             coEvery { repository.getHomeFeed(HomeCategory.ALL) } returns listOf(video("all"))
             coEvery { repository.getHomeFeed(HomeCategory.NEWS) } returns listOf(video("news"))
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.selectCategory(HomeCategory.NEWS)
             testDispatcher.scheduler.advanceUntilIdle()
@@ -123,7 +129,7 @@ class HomeViewModelTest {
             coEvery { repository.getHomeFeed(HomeCategory.ALL) } coAnswers { never.await() }
             coEvery { repository.getHomeFeed(HomeCategory.SPORTS) } returns listOf(video("sport"))
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             viewModel.selectCategory(HomeCategory.SPORTS)
             testDispatcher.scheduler.advanceUntilIdle()
             never.complete(listOf(video("stale")))
@@ -139,7 +145,7 @@ class HomeViewModelTest {
             coEvery { repository.getHomeFeed(HomeCategory.ALL) } returns listOf(video("1"))
             coEvery { repository.getShortsShelf() } coAnswers { shelf.await() }
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(UiState.Success(listOf(video("1"))), viewModel.uiState.value)
@@ -157,7 +163,7 @@ class HomeViewModelTest {
             coEvery { repository.getHomeFeed(HomeCategory.ALL) } returns listOf(video("1"))
             coEvery { repository.getShortsShelf() } throws IOException("offline")
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(UiState.Success(listOf(video("1"))), viewModel.uiState.value)
@@ -171,7 +177,7 @@ class HomeViewModelTest {
             coEvery { repository.getShortsShelf() } returnsMany
                 listOf(listOf(video("s1")), listOf(video("s2")))
 
-            val viewModel = HomeViewModel(repository)
+            val viewModel = HomeViewModel(repository, settingsRepository)
             testDispatcher.scheduler.advanceUntilIdle()
             assertEquals(listOf("s1"), viewModel.shortsShelf.value.map { it.id })
 

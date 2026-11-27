@@ -57,6 +57,10 @@ class ShortsCacheRepositoryImpl @Inject constructor(
     override suspend fun rememberChannelIds(ids: Set<String>) {
         dataStore.edit { prefs -> prefs[KNOWN_CHANNELS_KEY] = ids }
     }
+
+    override suspend fun clearKnownChannelIds() {
+        dataStore.edit { prefs -> prefs.remove(KNOWN_CHANNELS_KEY) }
+    }
 }
 
 /** Maps Room's rows to domain videos without exposing the DAO to callers. */

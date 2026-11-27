@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
+import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.toUserMessage
@@ -11,12 +12,15 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: VideoRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<UiState<List<Video>>>(UiState.Loading)
     val uiState: StateFlow<UiState<List<Video>>> = _uiState
@@ -38,6 +42,19 @@ class HomeViewModel @Inject constructor(
     private var requestToken = 0
 
     init {
+        load()
+        loadShortsShelf()
+        viewModelScope.launch {
+            settingsRepository.settings
+                .distinctUntilChangedBy { it.contentCountry to it.contentLanguage }
+                .drop(1)
+                .collect { onContentPreferencesChanged() }
+        }
+    }
+
+    /** Region/language changed: cached feeds must be replaced, not shown stale. */
+    fun onContentPreferencesChanged() {
+        cache.clear()
         load()
         loadShortsShelf()
     }

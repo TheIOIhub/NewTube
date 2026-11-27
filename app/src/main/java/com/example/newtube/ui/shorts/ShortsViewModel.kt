@@ -22,6 +22,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -122,6 +124,18 @@ class ShortsViewModel @Inject constructor(
     private val appended = linkedMapOf<String, Video>()
 
     init {
+        reload()
+        viewModelScope.launch {
+            settingsRepository.settings
+                .distinctUntilChangedBy { it.contentCountry to it.contentLanguage }
+                .drop(1)
+                .collect { onContentPreferencesChanged() }
+        }
+    }
+
+    /** Drop discovered channel ids and refetch so a region change is visible immediately. */
+    fun onContentPreferencesChanged() {
+        viewModelScope.launch { shortsCache.clearKnownChannelIds() }
         reload()
     }
 

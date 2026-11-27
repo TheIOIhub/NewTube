@@ -29,6 +29,18 @@ abstract class RepositoryModule {
             dao: VideoDao,
             channelDao: ChannelDao,
             shortsCache: ShortsCacheRepository,
-        ): VideoRepository = VideoRepositoryImpl(service, dao, channelDao, shortsCache)
+            settingsRepository: com.example.newtube.repository.SettingsRepository,
+            historyRepository: com.example.newtube.repository.HistoryRepository,
+            accountRepository: com.example.newtube.repository.AccountRepository,
+        ): VideoRepository =
+            VideoRepositoryImpl(
+                service,
+                dao,
+                channelDao,
+                shortsCache,
+                settingsRepository,
+                historyRepository,
+                accountRepository,
+            )
     }
 }

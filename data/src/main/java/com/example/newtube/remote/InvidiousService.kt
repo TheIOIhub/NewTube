@@ -14,8 +14,9 @@ import retrofit2.http.Query
 interface InvidiousService {
     @GET("api/v1/trending")
     suspend fun getTrending(
-        @Query("region") region: String = "US",
+        @Query("region") region: String? = null,
         @Query("type") type: String = "Default",
+        @Query("hl") hl: String? = null,
     ): List<VideoDto>
 
     /** Popular feed: a second, larger source for the mixed Home feed. */
@@ -32,6 +33,8 @@ interface InvidiousService {
         @Query("type") type: String = "video",
         @Query("duration") duration: String = "short",
         @Query("page") page: Int = 1,
+        @Query("region") region: String? = null,
+        @Query("hl") hl: String? = null,
     ): List<VideoDto>
 
     @GET("api/v1/channels/{channelId}/videos")
@@ -52,6 +55,8 @@ interface InvidiousService {
         @Query("q") query: String,
         @Query("type") type: String = "video",
         @Query("page") page: Int = 1,
+        @Query("region") region: String? = null,
+        @Query("hl") hl: String? = null,
     ): List<VideoDto>
 
     @GET("api/v1/search")
@@ -69,6 +74,8 @@ interface InvidiousService {
     @GET("api/v1/videos/{videoId}")
     suspend fun getVideoDetails(
         @Path("videoId") videoId: String,
+        @Query("region") region: String? = null,
+        @Query("hl") hl: String? = null,
     ): VideoDto
 
     @GET("api/v1/channels/{channelId}")

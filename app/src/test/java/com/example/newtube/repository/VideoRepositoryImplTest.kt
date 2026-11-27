@@ -14,10 +14,15 @@ import com.example.newtube.remote.FormatStreamDto
 import com.example.newtube.remote.InvidiousService
 import com.example.newtube.remote.ThumbnailDto
 import com.example.newtube.remote.VideoDto
+import com.example.newtube.repository.AccountRepository
+import com.example.newtube.repository.HistoryRepository
+import com.example.newtube.repository.SettingsRepository
 import io.mockk.coEvery
 import io.mockk.coJustRun
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -31,12 +36,29 @@ class VideoRepositoryImplTest {
     private val dao: VideoDao = mockk()
     private val channelDao: ChannelDao = mockk()
     private val shortsCache: ShortsCacheRepository = mockk()
+    private val settingsRepository: SettingsRepository = mockk(relaxed = true)
+    private val historyRepository: HistoryRepository = mockk(relaxed = true)
+    private val accountRepository: AccountRepository = mockk(relaxed = true)
+    private val settingsFlow = MutableStateFlow(AppSettings())
 
     @Before
     fun setUp() {
-        repository = VideoRepositoryImpl(service, dao, channelDao, shortsCache)
+        repository =
+            VideoRepositoryImpl(
+                service,
+                dao,
+                channelDao,
+                shortsCache,
+                settingsRepository,
+                historyRepository,
+                accountRepository,
+            )
+        settingsFlow.value = AppSettings()
+        coEvery { settingsRepository.settings } returns settingsFlow
+        coEvery { historyRepository.observeLocal(any()) } returns flowOf(emptyList())
         coEvery { shortsCache.knownChannelIds() } returns emptySet()
         coJustRun { shortsCache.rememberChannelIds(any()) }
+        coJustRun { dao.insertAll(any()) }
     }
 
     @Test
@@ -59,7 +81,7 @@ class VideoRepositoryImplTest {
                     lengthSeconds = 120L,
                     liveNow = false,
                 )
-            coEvery { service.getTrending(any(), any()) } returns listOf(dto)
+            coEvery { service.getTrending(any(), any(), any()) } returns listOf(dto)
             coJustRun { dao.insertAll(any()) }
 
             val result = repository.getTrending()
@@ -76,6 +98,71 @@ class VideoRepositoryImplTest {
         }
 
     @Test
+    fun `getTrending passes stored region and language to Invidious`() =
+        runBlocking {
+            settingsFlow.value = AppSettings(contentCountry = "US", contentLanguage = "en")
+            coEvery { service.getTrending("US", "Default", "en") } returns emptyList()
+
+            repository.getTrending()
+
+            coVerify { service.getTrending("US", "Default", "en") }
+        }
+
+    @Test
+    fun `getHomeFeed passes region and language to every source`() =
+        runBlocking {
+            settingsFlow.value = AppSettings(contentCountry = "US", contentLanguage = "en")
+            coEvery { service.getTrending(any(), any(), any()) } returns emptyList()
+            coEvery { service.getPopular() } returns emptyList()
+            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns emptyList()
+
+            repository.getHomeFeed(HomeCategory.ALL)
+
+            coVerify { service.getTrending("US", "Default", "en") }
+            coVerify { service.searchVideos(any(), any(), any(), "US", "en") }
+        }
+
+    @Test
+    fun `getShortsShelf passes region and language to the shorts search`() =
+        runBlocking {
+            settingsFlow.value = AppSettings(contentCountry = "US", contentLanguage = "en")
+            coEvery { service.getShorts(any(), any(), any(), any(), any(), any()) } returns emptyList()
+
+            repository.getShortsShelf()
+
+            coVerify { service.getShorts(any(), any(), any(), any(), "US", "en") }
+        }
+
+    @Test
+    fun `clearFeedCaches clears known shorts channels`() =
+        runBlocking {
+            coJustRun { shortsCache.clearKnownChannelIds() }
+
+            repository.clearFeedCaches()
+
+            coVerify { shortsCache.clearKnownChannelIds() }
+        }
+
+    @Test
+    fun `shorts discovery uses a Ukrainian query when no channels are cached`() =
+        runBlocking {
+            coEvery { service.searchChannels(any(), any(), any()) } returns listOf(ChannelSearchDto(authorId = "UCua"))
+            coEvery { service.getChannelShorts("UCua", any()) } returns
+                ChannelVideosDto(videos = listOf(videoDto("short-ua", length = 30)), continuation = null)
+            coJustRun { dao.insertAll(any()) }
+
+            repository.getShorts(1)
+
+            coVerify {
+                service.searchChannels(
+                    withArg { assertTrue(it.any { char -> char in '\u0400'..'\u04FF' }) },
+                    any(),
+                    any(),
+                )
+            }
+        }
+
+    @Test
     fun `getVideoDetails should prefer a progressive stream over the HLS manifest`() =
         runBlocking {
             val dto =
@@ -83,7 +170,7 @@ class VideoRepositoryImplTest {
                     hlsUrl = "https://example.com/manifest",
                     formatStreams = listOf(FormatStreamDto(url = "https://example.com/progressive.mp4", type = "video/mp4")),
                 )
-            coEvery { service.getVideoDetails("1") } returns dto
+            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
@@ -104,7 +191,7 @@ class VideoRepositoryImplTest {
                             adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
                         ),
                 )
-            coEvery { service.getVideoDetails("1") } returns dto
+            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
@@ -132,7 +219,7 @@ class VideoRepositoryImplTest {
                             adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
                         ),
                 )
-            coEvery { service.getVideoDetails("live1") } returns dto
+            coEvery { service.getVideoDetails("live1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             val details = repository.getVideoDetails("live1", AppSettings.DEFAULT_QUALITY)
@@ -148,7 +235,7 @@ class VideoRepositoryImplTest {
                     hlsUrl = "https://example.com/manifest",
                     adaptiveFormats = listOf(adaptiveVideo("https://example.com/720.mp4", "720p", "avc1.4D401F")),
                 )
-            coEvery { service.getVideoDetails("1") } returns dto
+            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
@@ -167,7 +254,7 @@ class VideoRepositoryImplTest {
                             FormatStreamDto(url = "https://example.com/video.mp4", type = "video/mp4"),
                         ),
                 )
-            coEvery { service.getVideoDetails("1") } returns dto
+            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
@@ -190,7 +277,7 @@ class VideoRepositoryImplTest {
                     description = "About the video",
                     recommendedVideos = listOf(videoDto(id = "2").copy(type = null)),
                 )
-            coEvery { service.getVideoDetails("1") } returns dto
+            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             val details = repository.getVideoDetails("1", AppSettings.DEFAULT_QUALITY)
@@ -258,7 +345,7 @@ class VideoRepositoryImplTest {
                     lengthSeconds = 0,
                     hlsUrl = "https://example.com/live.m3u8",
                 )
-            coEvery { service.getVideoDetails("live1") } returns dto
+            coEvery { service.getVideoDetails("live1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             val details = repository.getVideoDetails("live1", AppSettings.DEFAULT_QUALITY)
@@ -275,7 +362,7 @@ class VideoRepositoryImplTest {
             val playlist = VideoDto(type = "playlist", videoId = null, title = "Some playlist")
             val regular = videoDto(id = "1")
             val live = videoDto(id = "2").copy(type = "livestream", liveNow = true)
-            coEvery { service.searchVideos("q", page = 1) } returns listOf(channel, playlist, regular, live)
+            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns listOf(channel, playlist, regular, live)
             coJustRun { dao.insertAll(any()) }
 
             val result = repository.search("q")
@@ -286,10 +373,10 @@ class VideoRepositoryImplTest {
     @Test
     fun `getHomeFeed ALL merges every source and removes duplicates`() =
         runBlocking {
-            coEvery { service.getTrending("US", "Default") } returns listOf(videoDto("1"), videoDto("2"))
-            coEvery { service.getTrending("US", "Gaming") } returns listOf(videoDto("2"), videoDto("3"))
+            coEvery { service.getTrending("UA", "Default", any()) } returns listOf(videoDto("1"), videoDto("2"))
+            coEvery { service.getTrending("UA", "Gaming", any()) } returns listOf(videoDto("2"), videoDto("3"))
             coEvery { service.getPopular() } returns listOf(videoDto("3"), videoDto("4"))
-            coEvery { service.searchVideos(any(), any(), any()) } returns listOf(videoDto("4"), videoDto("5"))
+            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns listOf(videoDto("4"), videoDto("5"))
             coJustRun { dao.insertAll(any()) }
 
             val feed = repository.getHomeFeed(HomeCategory.ALL)
@@ -301,10 +388,10 @@ class VideoRepositoryImplTest {
     @Test
     fun `getHomeFeed keeps the feed when one source fails`() =
         runBlocking {
-            coEvery { service.getTrending("US", "Default") } throws IOException("boom")
-            coEvery { service.getTrending("US", "Gaming") } returns listOf(videoDto("2"))
+            coEvery { service.getTrending("UA", "Default", any()) } throws IOException("boom")
+            coEvery { service.getTrending("UA", "Gaming", any()) } returns listOf(videoDto("2"))
             coEvery { service.getPopular() } returns listOf(videoDto("3"))
-            coEvery { service.searchVideos(any(), any(), any()) } throws IOException("boom")
+            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } throws IOException("boom")
             coJustRun { dao.insertAll(any()) }
 
             val feed = repository.getHomeFeed(HomeCategory.ALL)
@@ -315,9 +402,9 @@ class VideoRepositoryImplTest {
     @Test
     fun `getHomeFeed fails only when every source fails`() =
         runBlocking {
-            coEvery { service.getTrending(any(), any()) } throws IOException("down")
+            coEvery { service.getTrending(any(), any(), any()) } throws IOException("down")
             coEvery { service.getPopular() } throws IOException("down")
-            coEvery { service.searchVideos(any(), any(), any()) } throws IOException("down")
+            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } throws IOException("down")
 
             val error = runCatching { repository.getHomeFeed(HomeCategory.MUSIC) }.exceptionOrNull()
 
@@ -327,14 +414,14 @@ class VideoRepositoryImplTest {
     @Test
     fun `getHomeFeed topic category includes its anchor and searches`() =
         runBlocking {
-            coEvery { service.getTrending("US", "Gaming") } returns listOf(videoDto("g1"))
-            coEvery { service.searchVideos(any(), any(), any()) } returns listOf(videoDto("m1"))
+            coEvery { service.getTrending("UA", "Gaming", any()) } returns listOf(videoDto("g1"))
+            coEvery { service.searchVideos(any(), any(), any(), any(), any()) } returns listOf(videoDto("m1"))
             coJustRun { dao.insertAll(any()) }
 
             val feed = repository.getHomeFeed(HomeCategory.GAMING)
 
             assertEquals(setOf("g1", "m1"), feed.map { it.id }.toSet())
-            coVerify { service.getTrending("US", "Gaming") }
+            coVerify { service.getTrending("UA", "Gaming", any()) }
         }
 
     @Test
@@ -546,7 +633,7 @@ class VideoRepositoryImplTest {
                             ThumbnailDto(url = "https://example.com/512.jpg", width = 512, height = 512),
                         ),
                 )
-            coEvery { service.getTrending(any(), any()) } returns listOf(dto)
+            coEvery { service.getTrending(any(), any(), any()) } returns listOf(dto)
             coJustRun { dao.insertAll(any()) }
 
             assertEquals("https://example.com/176.jpg", repository.getTrending().single().authorAvatarUrl)
@@ -563,7 +650,7 @@ class VideoRepositoryImplTest {
                             ThumbnailDto(url = "https://example.com/900.jpg", width = 900, height = 900),
                         ),
                 )
-            coEvery { service.getTrending(any(), any()) } returns listOf(dto)
+            coEvery { service.getTrending(any(), any(), any()) } returns listOf(dto)
             coJustRun { dao.insertAll(any()) }
 
             assertEquals("https://example.com/900.jpg", repository.getTrending().single().authorAvatarUrl)
@@ -572,7 +659,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `missing author thumbnails map to an empty avatar`() =
         runBlocking {
-            coEvery { service.getTrending(any(), any()) } returns listOf(videoDto(id = "1"))
+            coEvery { service.getTrending(any(), any(), any()) } returns listOf(videoDto(id = "1"))
             coJustRun { dao.insertAll(any()) }
 
             assertEquals("", repository.getTrending().single().authorAvatarUrl)
@@ -581,7 +668,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShortsShelf is one search and keeps only 1 to 60 second non-live clips`() =
         runBlocking {
-            coEvery { service.getShorts(page = 1) } returns
+            coEvery { service.getShorts(any(), any(), any(), any(), any(), any()) } returns
                 listOf(
                     videoDto("short", length = 30),
                     videoDto("live", length = 30).copy(liveNow = true),
@@ -594,13 +681,13 @@ class VideoRepositoryImplTest {
             val shelf = repository.getShortsShelf(limit = 8)
 
             assertEquals(listOf("short"), shelf.map { it.id })
-            coVerify(exactly = 1) { service.getShorts(page = 1) }
+            coVerify(exactly = 1) { service.getShorts(any(), any(), any(), any(), any(), any()) }
         }
 
     @Test
     fun `getShortsShelf honours the limit`() =
         runBlocking {
-            coEvery { service.getShorts(page = 1) } returns
+            coEvery { service.getShorts(any(), any(), any(), any(), any(), any()) } returns
                 (1..10).map { videoDto("s$it", length = 30) }
             coJustRun { dao.insertAll(any()) }
 
@@ -620,7 +707,7 @@ class VideoRepositoryImplTest {
                             adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
                         ),
                 )
-            coEvery { service.getVideoDetails("1") } returns dto
+            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             assertEquals(
@@ -644,7 +731,7 @@ class VideoRepositoryImplTest {
                             adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
                         ),
                 )
-            coEvery { service.getVideoDetails("1") } returns dto
+            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             assertEquals(
@@ -675,7 +762,7 @@ class VideoRepositoryImplTest {
                             adaptiveAudio("https://example.com/audio.m4a", "130668", "mp4a.40.2"),
                         ),
                 )
-            coEvery { service.getVideoDetails("1") } returns dto
+            coEvery { service.getVideoDetails("1", any(), any()) } returns dto
             coJustRun { dao.insertAll(any()) }
 
             assertEquals(

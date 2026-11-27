@@ -18,4 +18,7 @@ interface ShortsCacheRepository {
     suspend fun knownChannelIds(): Set<String>
 
     suspend fun rememberChannelIds(ids: Set<String>)
+
+    /** Drop discovered channel ids so the next load rediscovers for the new region. */
+    suspend fun clearKnownChannelIds()
 }

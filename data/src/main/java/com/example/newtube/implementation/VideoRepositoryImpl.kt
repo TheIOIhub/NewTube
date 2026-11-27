@@ -19,12 +19,16 @@ import com.example.newtube.remote.FormatStreamDto
 import com.example.newtube.remote.InvidiousService
 import com.example.newtube.remote.ThumbnailDto
 import com.example.newtube.remote.VideoDto
+import com.example.newtube.repository.AccountRepository
+import com.example.newtube.repository.HistoryRepository
+import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -37,14 +41,28 @@ class VideoRepositoryImpl @Inject constructor(
     private val dao: VideoDao,
     private val channelDao: ChannelDao,
     private val shortsCache: ShortsCacheRepository,
+    private val settingsRepository: SettingsRepository,
+    private val historyRepository: HistoryRepository,
+    private val accountRepository: AccountRepository,
 ) : VideoRepository {
     /** Serializes channel rotation and the shared "already used" set. */
     private val shortsChannelMutex = Mutex()
     private val usedShortsChannels = mutableSetOf<String>()
 
+    private data class ContentPrefs(val region: String, val language: String)
+
+    private suspend fun contentPrefs(): ContentPrefs =
+        settingsRepository.settings.first().let { ContentPrefs(it.contentCountry, it.contentLanguage) }
+
+    /** Called when the user changes content country/language so caches do not stay stale. */
+    suspend fun clearFeedCaches() {
+        shortsCache.clearKnownChannelIds()
+    }
+
     override suspend fun getTrending(): List<Video> =
         withContext(Dispatchers.IO) {
-            service.getTrending().toDomainVideos()
+            val prefs = contentPrefs()
+            service.getTrending(region = prefs.region, hl = prefs.language).toDomainVideos()
         }
 
     /**
@@ -54,9 +72,10 @@ class VideoRepositoryImpl @Inject constructor(
      */
     override suspend fun getHomeFeed(category: HomeCategory): List<Video> =
         withContext(Dispatchers.IO) {
+            val prefs = contentPrefs()
             val results =
                 coroutineScope {
-                    category.feedSources().map { source -> async { source.load() } }.awaitAll()
+                    category.feedSources().map { source -> async { source.load(prefs) } }.awaitAll()
                 }
             if (results.all { it.isFailure }) {
                 throw results.first().exceptionOrNull() ?: IllegalStateException("No feed sources")
@@ -78,12 +97,14 @@ class VideoRepositoryImpl @Inject constructor(
         data class Search(val query: String) : FeedSource
     }
 
-    private suspend fun FeedSource.load(): Result<List<VideoDto>> =
+    private suspend fun FeedSource.load(prefs: ContentPrefs): Result<List<VideoDto>> =
         runCatching {
             when (this) {
-                is FeedSource.Trending -> service.getTrending(type = type)
+                is FeedSource.Trending ->
+                    service.getTrending(type = type, region = prefs.region, hl = prefs.language)
                 FeedSource.Popular -> service.getPopular()
-                is FeedSource.Search -> service.searchVideos(query)
+                is FeedSource.Search ->
+                    service.searchVideos(query, region = prefs.region, hl = prefs.language)
             }
         }
 
@@ -151,8 +172,9 @@ class VideoRepositoryImpl @Inject constructor(
 
     override suspend fun getShortsShelf(limit: Int): List<Video> =
         withContext(Dispatchers.IO) {
+            val prefs = contentPrefs()
             service
-                .getShorts(page = 1)
+                .getShorts(page = 1, region = prefs.region, hl = prefs.language)
                 .asSequence()
                 .filter { it.lengthSeconds in 1..SHORTS_SHELF_MAX_SECONDS && !it.liveNow }
                 .distinctBy { it.videoId }
@@ -200,8 +222,9 @@ class VideoRepositoryImpl @Inject constructor(
         val discoveredWithBucket =
             runCatching {
                 coroutineScope {
-                    SHORTS_CHANNEL_QUERIES
-                        .shuffled()
+                    (UKRAINIAN_SHORTS_CHANNEL_QUERIES.shuffled() +
+                            SHORTS_CHANNEL_QUERIES.shuffled())
+                        .distinct()
                         .take(SHORTS_DISCOVERY_QUERIES_PER_PAGE)
                         .map { query ->
                             async {
@@ -270,18 +293,20 @@ class VideoRepositoryImpl @Inject constructor(
 
     override suspend fun search(query: String, page: Int): List<Video> =
         withContext(Dispatchers.IO) {
-            service.searchVideos(query, page = page).toDomainVideos()
+            val prefs = contentPrefs()
+            service.searchVideos(query, page = page, region = prefs.region, hl = prefs.language).toDomainVideos()
         }
 
     override suspend fun getVideoById(videoId: String): Video =
         withContext(Dispatchers.IO) {
             dao.getVideoById(videoId)?.toDomain()
-                ?: service.getVideoDetails(videoId).toDomainVideo()
+                ?: service.getVideoDetails(videoId, region = contentPrefs().region, hl = contentPrefs().language).toDomainVideo()
         }
 
     override suspend fun getVideoDetails(videoId: String, maxHeight: Int): VideoDetails =
         withContext(Dispatchers.IO) {
-            val dto = service.getVideoDetails(videoId)
+            val prefs = contentPrefs()
+            val dto = service.getVideoDetails(videoId, region = prefs.region, hl = prefs.language)
             val video = dto.toDomainVideo()
             val playback =
                 dto.toPlaybackSource(maxHeight)
@@ -519,8 +544,23 @@ class VideoRepositoryImpl @Inject constructor(
         val ALL_TOPIC_QUERIES =
             MUSIC_QUERIES + GAMING_QUERIES + MOVIE_QUERIES + SPORTS_QUERIES + NEWS_QUERIES + TECH_QUERIES
 
-        val SHORTS_CHANNEL_QUERIES =
+        val UKRAINIAN_SHORTS_CHANNEL_QUERIES =
             listOf(
+                "шорти",
+                "українські шорти",
+                "короткі відео",
+                "гумористичні шорти",
+                "кулінарні шорти",
+                "ігрові шорти",
+                "музичні шорти",
+                "спортивні шорти",
+                "цікаві факти шорти",
+                "новини шорти",
+            )
+        val UKRAINIAN_FALLBACK_SHORTS_CHANNELS = emptyList<String>()
+
+        val SHORTS_CHANNEL_QUERIES =
+            UKRAINIAN_SHORTS_CHANNEL_QUERIES + listOf(
                 "shorts", "funny shorts", "animal shorts", "pet shorts",
                 "cooking shorts", "food shorts", "dance shorts", "music shorts",
                 "gaming shorts", "esports shorts", "sports shorts", "soccer shorts",
@@ -529,7 +569,7 @@ class VideoRepositoryImpl @Inject constructor(
                 "education shorts", "life hacks shorts",
             )
         val FALLBACK_SHORTS_CHANNELS =
-            listOf(
+            UKRAINIAN_FALLBACK_SHORTS_CHANNELS + listOf(
                 // Shorts Break
                 "UCgJ5_1F6yJhYLnyMszUdmUg",
                 // A for Adley Shorts
