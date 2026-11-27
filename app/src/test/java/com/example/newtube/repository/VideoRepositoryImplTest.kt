@@ -71,22 +71,22 @@ class VideoRepositoryImplTest {
     }
 
     @Test
-    fun `getHomeFeed ALL uses one browse call and never search`() =
+    fun `getHomeFeed ALL uses a search feed because signed-out home browse is empty`() =
         runBlocking {
-            coEvery { contentClient.browse(any(), any()) } returns
+            coEvery { contentClient.search("популярні відео", null, null) } returns
                 feedJson(FeedItem("1"), FeedItem("2"), FeedItem("2"))
 
             val feed = repository.getHomeFeed(HomeCategory.ALL)
 
             assertEquals(listOf("1", "2"), feed.map { it.id })
-            coVerify(exactly = 1) { contentClient.browse(any(), any()) }
-            coVerify(exactly = 0) { contentClient.search(any(), any(), any()) }
+            coVerify(exactly = 1) { contentClient.search("популярні відео", null, null) }
+            coVerify(exactly = 0) { contentClient.browse(any(), any()) }
         }
 
     @Test
     fun `getTrending maps feed metadata and writes it through to Room`() =
         runBlocking {
-            coEvery { contentClient.browse(any(), any()) } returns
+            coEvery { contentClient.search(any(), any(), any()) } returns
                 feedJson(FeedItem("1", title = "Test Video", seconds = 120))
 
             val result = repository.getTrending()
@@ -101,9 +101,9 @@ class VideoRepositoryImplTest {
         }
 
     @Test
-    fun `getShorts uses one reel shelf browse call and never a channel search`() =
+    fun `getShorts uses one shorts search and never an obsolete shelf browse`() =
         runBlocking {
-            coEvery { contentClient.browse("FEshorts", null) } returns
+            coEvery { contentClient.search("#shorts", null, null) } returns
                 feedJson(
                     FeedItem("short", seconds = 30),
                     FeedItem("reel", seconds = 0),
@@ -114,14 +114,14 @@ class VideoRepositoryImplTest {
             val shorts = repository.getShorts(1)
 
             assertEquals(setOf("short", "reel"), shorts.map { it.id }.toSet())
-            coVerify(exactly = 1) { contentClient.browse("FEshorts", null) }
-            coVerify(exactly = 0) { contentClient.search(any(), any(), any()) }
+            coVerify(exactly = 1) { contentClient.search("#shorts", null, null) }
+            coVerify(exactly = 0) { contentClient.browse("FEshorts", any()) }
         }
 
     @Test
     fun `getShortsShelf keeps short reels and drops long or live clips`() =
         runBlocking {
-            coEvery { contentClient.browse(any(), any()) } returns
+            coEvery { contentClient.search("#shorts", null, null) } returns
                 feedJson(
                     FeedItem("short", seconds = 30),
                     FeedItem("duplicate", seconds = 30),
@@ -134,7 +134,7 @@ class VideoRepositoryImplTest {
             val shelf = repository.getShortsShelf(limit = 5)
 
             assertEquals(setOf("short", "duplicate", "zero"), shelf.map { it.id }.toSet())
-            coVerify(exactly = 1) { contentClient.browse(any(), any()) }
+            coVerify(exactly = 1) { contentClient.search("#shorts", null, null) }
         }
 
     @Test
@@ -150,8 +150,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `observeFeed parses cached JSON and emits empty when absent`() =
         runBlocking {
-            val json = feedJson(FeedItem("cached"))
-            every { feedCache.observe("home:ALL") } returns flowOf(json)
+            every { feedCache.observe("home:ALL") } returns flowOf(cachedFeedJson(FeedItem("cached")))
             every { feedCache.observe("shorts") } returns flowOf(null)
 
             assertEquals(listOf("cached"), repository.observeFeed(FeedKey.Home(HomeCategory.ALL)).first().map { it.id })
@@ -162,13 +161,14 @@ class VideoRepositoryImplTest {
     fun `refreshFeed stores the raw response and returns parsed videos`() =
         runBlocking {
             val json = feedJson(FeedItem("fresh"))
-            coEvery { contentClient.browse("FEtrending", null) } returns json
+            coEvery { contentClient.search("популярні відео", null, null) } returns json
             coJustRun { feedCache.put(any(), any()) }
 
             val result = repository.refreshFeed(FeedKey.Home(HomeCategory.ALL))
 
             assertEquals(listOf("fresh"), result.getOrThrow().map { it.id })
-            coVerify { feedCache.put("home:ALL", json) }
+            coVerify(exactly = 1) { feedCache.put(any(), any()) }
+            coVerify(exactly = 0) { feedCache.put("home:ALL", json) }
         }
 
     @Test
@@ -186,7 +186,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `refreshFeed failure keeps the cached feed untouched`() =
         runBlocking {
-            coEvery { contentClient.browse("FEshorts", null) } throws IOException("offline")
+            coEvery { contentClient.search("#shorts", null, null) } throws IOException("offline")
 
             assertTrue(repository.refreshFeed(FeedKey.Shorts).isFailure)
             coVerify(exactly = 0) { feedCache.put(any(), any()) }
@@ -195,7 +195,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `refreshFeed with an unusable response keeps the cached feed untouched`() =
         runBlocking {
-            coEvery { contentClient.browse("FEtrending", null) } returns "<html>bot check</html>"
+            coEvery { contentClient.search("популярні відео", null, null) } returns "<html>bot check</html>"
 
             assertTrue(repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)).getOrThrow().isEmpty())
             coVerify(exactly = 0) { feedCache.put(any(), any()) }
@@ -225,7 +225,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getForYouFeed ranks a watched Ukrainian channel first`() =
         runBlocking {
-            coEvery { contentClient.browse(any(), any()) } returns forYouJson()
+            coEvery { contentClient.search(any(), any(), any()) } returns forYouJson()
             coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
 
             assertEquals("ua", repository.getForYouFeed().first().id)
@@ -234,7 +234,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `refreshFeed Home FOR_YOU keeps the same ranked order as getForYouFeed`() =
         runBlocking {
-            coEvery { contentClient.browse(any(), any()) } returns forYouJson()
+            coEvery { contentClient.search(any(), any(), any()) } returns forYouJson()
             coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
 
             val refreshed = repository.refreshFeed(FeedKey.Home(HomeCategory.FOR_YOU)).getOrThrow()
@@ -246,7 +246,13 @@ class VideoRepositoryImplTest {
     @Test
     fun `observeFeed Home FOR_YOU ranks cached videos too`() =
         runBlocking {
-            every { feedCache.observe("home:FOR_YOU") } returns flowOf(forYouJson())
+            every { feedCache.observe("home:FOR_YOU") } returns
+                flowOf(
+                    cachedFeedJson(
+                        FeedItem("us", title = "Breaking news", channelId = "UCus"),
+                        FeedItem("ua", title = "Новини України", channelId = "UCua"),
+                    ),
+                )
             coEvery { historyRepository.observeLocal(500) } returns flowOf(listOf(watchedUkrainian()))
 
             val cached = repository.observeFeed(FeedKey.Home(HomeCategory.FOR_YOU)).first()
@@ -262,8 +268,9 @@ class VideoRepositoryImplTest {
                 feedJson(
                     *((1..70).map { FeedItem("$it") } + FeedItem("blocked", title = "adult content")).toTypedArray(),
                 )
-            coEvery { contentClient.browse(any(), any()) } returns json
-            every { feedCache.observe("home:ALL") } returns flowOf(json)
+            coEvery { contentClient.search(any(), any(), any()) } returns json
+            every { feedCache.observe("home:ALL") } returns
+                flowOf(cachedFeedJson(*((1..70).map { FeedItem("$it") } + FeedItem("blocked", title = "adult content")).toTypedArray()))
 
             val refreshed = repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)).getOrThrow()
             val cached = repository.observeFeed(FeedKey.Home(HomeCategory.ALL)).first()
@@ -538,6 +545,12 @@ class VideoRepositoryImplTest {
             }
         return """{"contents":[${items.joinToString(",") { renderer(it) }}$token]}"""
     }
+
+    /** Compact cache payload shape that must fit into a Room CursorWindow row. */
+    private fun cachedFeedJson(vararg items: FeedItem): String =
+        items.joinToString(",", "[", "]") { item ->
+            """{"id":"${item.id}","title":"${item.title}","channelName":"Author","channelId":"${item.channelId}","thumbnailUrl":"https://example.invalid/${item.id}.jpg","duration":${item.seconds},"views":100,"uploadedAt":"1 day ago","isLive":${item.live},"authorAvatarUrl":""}"""
+        }
 
     private fun format(
         url: String,

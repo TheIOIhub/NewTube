@@ -35,8 +35,16 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -76,7 +84,7 @@ class VideoRepositoryImpl @Inject constructor(
         feedCache
             .observe(key.cacheKey())
             .map { json ->
-                val items = json?.let { ContentParser.parseFeed(it).items }.orEmpty()
+                val items = json?.let(::decodeCachedFeed).orEmpty()
                 items.forFeedKey(key)
             }
             .flowOn(Dispatchers.Default)
@@ -88,7 +96,7 @@ class VideoRepositoryImpl @Inject constructor(
             val items = ContentParser.parseFeed(json).items.forFeedKey(key)
             // Only a usable parsed feed may replace the cached page: a nonblank
             // bot-check page or an exhausted search token must keep the old feed.
-            if (items.isNotEmpty()) feedCache.put(key.cacheKey(), json)
+            if (items.isNotEmpty()) feedCache.put(key.cacheKey(), items.toCacheJson())
             items
         }
 
@@ -124,8 +132,8 @@ class VideoRepositoryImpl @Inject constructor(
     /** Every branch is one InnerTube response, kept verbatim for the cache. */
     private suspend fun FeedKey.fetchJson(): String =
         when (this) {
-            is FeedKey.Home -> contentClient.browse(category.browseId())
-            FeedKey.Shorts -> contentClient.browse(BROWSE_SHORTS)
+            is FeedKey.Home -> contentClient.search(category.searchQuery(), null, null)
+            FeedKey.Shorts -> contentClient.search(SHORTS_QUERY, null, null)
             is FeedKey.Search -> searchJson(query, page)
             is FeedKey.Channel -> contentClient.browse(channelId)
             FeedKey.Notifications -> contentClient.browse(BROWSE_NOTIFICATIONS)
@@ -133,13 +141,13 @@ class VideoRepositoryImpl @Inject constructor(
 
     override suspend fun getTrending(): List<Video> =
         withContext(Dispatchers.IO) {
-            contentClient.browse(BROWSE_TRENDING).toFilteredVideos()
+            contentClient.search(HOME_SEARCH_QUERY, null, null).toFilteredVideos()
         }
 
     /** One native YouTube browse feed per tab; no topic-mix searches. */
     override suspend fun getHomeFeed(category: HomeCategory): List<Video> =
         withContext(Dispatchers.IO) {
-            contentClient.browse(category.browseId()).toFilteredVideos().take(HOME_FEED_LIMIT)
+            contentClient.search(category.searchQuery(), null, null).toFilteredVideos().take(HOME_FEED_LIMIT)
         }
 
     override suspend fun getForYouFeed(): List<Video> = rankForYou(getHomeFeed(HomeCategory.ALL))
@@ -172,16 +180,15 @@ class VideoRepositoryImpl @Inject constructor(
             rankFeed(base, FeedSignals(affinity, subscriptions, settings.contentLanguage))
         }
 
-    private fun HomeCategory.browseId(): String =
+    private fun HomeCategory.searchQuery(): String =
         when (this) {
-            HomeCategory.FOR_YOU, HomeCategory.ALL -> BROWSE_TRENDING
-            HomeCategory.MUSIC -> "FEmusic_home"
-            HomeCategory.GAMING -> "FEgaming_home"
-            HomeCategory.MOVIES -> "FEmovies_home"
-            HomeCategory.SPORTS -> "FEsports_home"
-            HomeCategory.NEWS -> "FEnws_home"
-            // YouTube has no technology browse tab; trending keeps the tab useful.
-            HomeCategory.TECHNOLOGY -> BROWSE_TRENDING
+            HomeCategory.FOR_YOU, HomeCategory.ALL -> HOME_SEARCH_QUERY
+            HomeCategory.MUSIC -> "музика"
+            HomeCategory.GAMING -> "ігри"
+            HomeCategory.MOVIES -> "фільми"
+            HomeCategory.SPORTS -> "спорт"
+            HomeCategory.NEWS -> "новини"
+            HomeCategory.TECHNOLOGY -> "технології"
         }
 
     /**
@@ -192,7 +199,7 @@ class VideoRepositoryImpl @Inject constructor(
         withContext(Dispatchers.IO) {
             val feed =
                 ContentParser.parseFeed(
-                    contentClient.browse(BROWSE_SHORTS, if (page > 1) shortsContinuation else null),
+                    contentClient.search(SHORTS_QUERY, null, if (page > 1) shortsContinuation else null),
                 )
             shortsContinuation = feed.continuation
             // reelItemRenderer carries no lengthText, so 0 means "unknown", not "invalid".
@@ -206,7 +213,7 @@ class VideoRepositoryImpl @Inject constructor(
     override suspend fun getShortsShelf(limit: Int): List<Video> =
         withContext(Dispatchers.IO) {
             ContentParser
-                .parseFeed(contentClient.browse(BROWSE_SHORTS))
+                .parseFeed(contentClient.search(SHORTS_QUERY, null, null))
                 .items
                 .filter { it.duration in 0L..SHORTS_SHELF_MAX_SECONDS && !it.isLive }
                 .toFilteredVideos()
@@ -463,9 +470,53 @@ class VideoRepositoryImpl @Inject constructor(
             description = description,
         )
 
+    /**
+     * Room's CursorWindow rejects rows above ~2 MB, and a raw InnerTube feed
+     * response can exceed that. Cache only the normalised video metadata.
+     */
+    private fun List<Video>.toCacheJson(): String =
+        buildJsonArray {
+            this@toCacheJson.forEach { video ->
+                add(
+                    buildJsonObject {
+                        put("id", video.id)
+                        put("title", video.title)
+                        put("channelName", video.channelName)
+                        put("channelId", video.channelId)
+                        put("thumbnailUrl", video.thumbnailUrl)
+                        put("duration", video.duration)
+                        put("views", video.views)
+                        put("uploadedAt", video.uploadedAt)
+                        put("isLive", video.isLive)
+                        put("authorAvatarUrl", video.authorAvatarUrl)
+                    },
+                )
+            }
+        }.toString()
+
+    private fun decodeCachedFeed(json: String): List<Video> =
+        runCatching {
+            Json.parseToJsonElement(json).jsonArray.mapNotNull { element ->
+                val obj = element.jsonObject
+                val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                Video(
+                    id = id,
+                    title = obj["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    channelName = obj["channelName"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    channelId = obj["channelId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    thumbnailUrl = obj["thumbnailUrl"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    duration = obj["duration"]?.jsonPrimitive?.longOrNull ?: 0L,
+                    views = obj["views"]?.jsonPrimitive?.longOrNull ?: 0L,
+                    uploadedAt = obj["uploadedAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    isLive = obj["isLive"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    authorAvatarUrl = obj["authorAvatarUrl"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                )
+            }
+        }.getOrElse { emptyList() }
+
     private companion object {
-        const val BROWSE_TRENDING = "FEtrending"
-        const val BROWSE_SHORTS = "FEshorts"
+        const val HOME_SEARCH_QUERY = "популярні відео"
+        const val SHORTS_QUERY = "#shorts"
         const val BROWSE_NOTIFICATIONS = "FEnotifications"
         const val HOME_FEED_LIMIT = 60
         const val HISTORY_SIGNAL_LIMIT = 500
