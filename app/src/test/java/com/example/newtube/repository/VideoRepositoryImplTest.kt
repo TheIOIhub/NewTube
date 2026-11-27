@@ -84,10 +84,26 @@ class VideoRepositoryImplTest {
         }
 
     @Test
+    fun `getHomeFeed drops short clips so Shorts stay in their own shelf and tab`() =
+        runBlocking {
+            coEvery { contentClient.search("популярні відео", null, null) } returns
+                feedJson(
+                    FeedItem("short", seconds = 30),
+                    FeedItem("reel", seconds = 0),
+                    FeedItem("long", seconds = 300),
+                    FeedItem("live", seconds = 30, live = true),
+                )
+
+            val feed = repository.getHomeFeed(HomeCategory.ALL)
+
+            assertEquals(setOf("long", "live"), feed.map { it.id }.toSet())
+        }
+
+    @Test
     fun `getTrending maps feed metadata and writes it through to Room`() =
         runBlocking {
             coEvery { contentClient.search(any(), any(), any()) } returns
-                feedJson(FeedItem("1", title = "Test Video", seconds = 120))
+                feedJson(FeedItem("1", title = "Test Video", seconds = 300))
 
             val result = repository.getTrending()
 
@@ -96,7 +112,7 @@ class VideoRepositoryImplTest {
             assertEquals("Test Video", result[0].title)
             assertEquals("UC1", result[0].channelId)
             assertEquals("https://example.invalid/1.jpg", result[0].thumbnailUrl)
-            assertEquals(120L, result[0].duration)
+            assertEquals(300L, result[0].duration)
             coVerify { dao.insertAll(any()) }
         }
 
@@ -514,7 +530,7 @@ class VideoRepositoryImplTest {
         val id: String,
         val title: String = "Video $id",
         val channelId: String = "UC$id",
-        val seconds: Long = 60,
+        val seconds: Long = 300,
         val live: Boolean = false,
     )
 

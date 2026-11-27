@@ -108,7 +108,7 @@ class VideoRepositoryImpl @Inject constructor(
     private suspend fun List<Video>.forFeedKey(key: FeedKey): List<Video> =
         when (key) {
             is FeedKey.Home -> {
-                val limited = toFilteredVideos().take(HOME_FEED_LIMIT)
+                val limited = withoutShorts().toFilteredVideos().take(HOME_FEED_LIMIT)
                 if (key.category == HomeCategory.FOR_YOU) rankForYou(limited) else limited
             }
             is FeedKey.Search -> toFilteredVideos().take(HOME_FEED_LIMIT)
@@ -141,13 +141,20 @@ class VideoRepositoryImpl @Inject constructor(
 
     override suspend fun getTrending(): List<Video> =
         withContext(Dispatchers.IO) {
-            contentClient.search(HOME_SEARCH_QUERY, null, null).toFilteredVideos()
+            ContentParser.parseFeed(contentClient.search(HOME_SEARCH_QUERY, null, null))
+                .items
+                .withoutShorts()
+                .toFilteredVideos()
         }
 
     /** One native YouTube browse feed per tab; no topic-mix searches. */
     override suspend fun getHomeFeed(category: HomeCategory): List<Video> =
         withContext(Dispatchers.IO) {
-            contentClient.search(category.searchQuery(), null, null).toFilteredVideos().take(HOME_FEED_LIMIT)
+            ContentParser.parseFeed(contentClient.search(category.searchQuery(), null, null))
+                .items
+                .withoutShorts()
+                .toFilteredVideos()
+                .take(HOME_FEED_LIMIT)
         }
 
     override suspend fun getForYouFeed(): List<Video> = rankForYou(getHomeFeed(HomeCategory.ALL))
@@ -342,6 +349,14 @@ class VideoRepositoryImpl @Inject constructor(
                 totalCount = page.totalCount,
             )
         }
+
+    /**
+     * YouTube mixes reels into ordinary search results, and the Home feed is
+     * search-backed now. Shorts have their own shelf and tab, so keep them out
+     * of Home; live clips are allowed even though their duration is unknown.
+     */
+    private fun List<Video>.withoutShorts(): List<Video> =
+        filter { it.isLive || it.duration > SHORTS_MAX_SECONDS }
 
     /** Applies the local content filters and writes only metadata to Room. */
     private suspend fun String.toFilteredVideos(): List<Video> =
