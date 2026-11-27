@@ -27,6 +27,8 @@ import org.junit.Before
 import org.junit.Test
 import java.io.IOException
 
+private const val HOME_SEARCH_PARAMS = "EgIYAw=="
+
 class VideoRepositoryImplTest {
     private lateinit var repository: VideoRepositoryImpl
     private val contentClient: YouTubeContentClient = mockk()
@@ -73,20 +75,20 @@ class VideoRepositoryImplTest {
     @Test
     fun `getHomeFeed ALL uses a search feed because signed-out home browse is empty`() =
         runBlocking {
-            coEvery { contentClient.search("популярні відео", null, null) } returns
+            coEvery { contentClient.search("популярні відео", HOME_SEARCH_PARAMS, null) } returns
                 feedJson(FeedItem("1"), FeedItem("2"), FeedItem("2"))
 
             val feed = repository.getHomeFeed(HomeCategory.ALL)
 
             assertEquals(listOf("1", "2"), feed.map { it.id })
-            coVerify(exactly = 1) { contentClient.search("популярні відео", null, null) }
+            coVerify(exactly = 1) { contentClient.search("популярні відео", HOME_SEARCH_PARAMS, null) }
             coVerify(exactly = 0) { contentClient.browse(any(), any()) }
         }
 
     @Test
     fun `getHomeFeed drops short clips so Shorts stay in their own shelf and tab`() =
         runBlocking {
-            coEvery { contentClient.search("популярні відео", null, null) } returns
+            coEvery { contentClient.search("популярні відео", HOME_SEARCH_PARAMS, null) } returns
                 feedJson(
                     FeedItem("short", seconds = 30),
                     FeedItem("reel", seconds = 0),
@@ -177,7 +179,7 @@ class VideoRepositoryImplTest {
     fun `refreshFeed stores the raw response and returns parsed videos`() =
         runBlocking {
             val json = feedJson(FeedItem("fresh"))
-            coEvery { contentClient.search("популярні відео", null, null) } returns json
+            coEvery { contentClient.search("популярні відео", HOME_SEARCH_PARAMS, null) } returns json
             coJustRun { feedCache.put(any(), any()) }
 
             val result = repository.refreshFeed(FeedKey.Home(HomeCategory.ALL))
@@ -211,7 +213,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `refreshFeed with an unusable response keeps the cached feed untouched`() =
         runBlocking {
-            coEvery { contentClient.search("популярні відео", null, null) } returns "<html>bot check</html>"
+            coEvery { contentClient.search("популярні відео", HOME_SEARCH_PARAMS, null) } returns "<html>bot check</html>"
 
             assertTrue(repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)).getOrThrow().isEmpty())
             coVerify(exactly = 0) { feedCache.put(any(), any()) }

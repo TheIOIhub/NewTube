@@ -132,7 +132,7 @@ class VideoRepositoryImpl @Inject constructor(
     /** Every branch is one InnerTube response, kept verbatim for the cache. */
     private suspend fun FeedKey.fetchJson(): String =
         when (this) {
-            is FeedKey.Home -> contentClient.search(category.searchQuery(), null, null)
+            is FeedKey.Home -> contentClient.search(category.searchQuery(), HOME_SEARCH_PARAMS, null)
             FeedKey.Shorts -> contentClient.search(SHORTS_QUERY, null, null)
             is FeedKey.Search -> searchJson(query, page)
             is FeedKey.Channel -> contentClient.browse(channelId)
@@ -141,7 +141,7 @@ class VideoRepositoryImpl @Inject constructor(
 
     override suspend fun getTrending(): List<Video> =
         withContext(Dispatchers.IO) {
-            ContentParser.parseFeed(contentClient.search(HOME_SEARCH_QUERY, null, null))
+            ContentParser.parseFeed(contentClient.search(HOME_SEARCH_QUERY, HOME_SEARCH_PARAMS, null))
                 .items
                 .withoutShorts()
                 .toFilteredVideos()
@@ -150,7 +150,7 @@ class VideoRepositoryImpl @Inject constructor(
     /** One native YouTube browse feed per tab; no topic-mix searches. */
     override suspend fun getHomeFeed(category: HomeCategory): List<Video> =
         withContext(Dispatchers.IO) {
-            ContentParser.parseFeed(contentClient.search(category.searchQuery(), null, null))
+            ContentParser.parseFeed(contentClient.search(category.searchQuery(), HOME_SEARCH_PARAMS, null))
                 .items
                 .withoutShorts()
                 .toFilteredVideos()
@@ -531,6 +531,9 @@ class VideoRepositoryImpl @Inject constructor(
 
     private companion object {
         const val HOME_SEARCH_QUERY = "популярні відео"
+
+        /** InnerTube search filter: 4–20 minutes, keeps Shorts out server-side. */
+        const val HOME_SEARCH_PARAMS = "EgIYAw=="
         const val SHORTS_QUERY = "#shorts"
         const val BROWSE_NOTIFICATIONS = "FEnotifications"
         const val HOME_FEED_LIMIT = 60
