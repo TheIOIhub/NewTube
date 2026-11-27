@@ -82,6 +82,7 @@ fun WatchScreen(
                     settings,
                     viewModel::savePosition,
                     viewModel::setResizeMode,
+                    viewModel::setVideoBrightness,
                 )
             }
         }
@@ -96,6 +97,7 @@ private fun WatchContent(
     settings: AppSettings,
     onSavePosition: (Long) -> Unit,
     onResizeModeChange: (Int) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
 ) {
     var isFullscreen by rememberSaveable { mutableStateOf(false) }
     val details = watch.details
@@ -117,6 +119,13 @@ private fun WatchContent(
             resizeMode = settings.resizeMode,
             preferredAudioLanguage = settings.preferredAudioLanguage,
             onResizeModeChange = onResizeModeChange,
+            doubleTapSeekSeconds = settings.doubleTapSeekSeconds,
+            gestureVolume = settings.gestureVolume,
+            gestureBrightness = settings.gestureBrightness,
+            volumeGestureSide = settings.volumeGestureSide,
+            brightnessGestureSide = settings.brightnessGestureSide,
+            videoBrightness = settings.videoBrightness,
+            onBrightnessChange = onBrightnessChange,
         )
 
         if (!isFullscreen) {

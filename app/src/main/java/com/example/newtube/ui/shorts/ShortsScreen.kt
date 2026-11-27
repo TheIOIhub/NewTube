@@ -52,6 +52,8 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import com.example.newtube.R
 import com.example.newtube.di.PlaybackCacheEntryPoint
+import com.example.newtube.ui.video.PlayerGestureOverlay
+import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.ui.common.EmptyScreen
@@ -190,6 +192,7 @@ private fun ShortsPager(
         remember(resolvedVideos, sources) { resolvedVideos.map { sources[it.id]!! } }
 
     val requestedStartId by viewModel.requestedStartId.collectAsState()
+    val settings by viewModel.settings.collectAsState()
     val targetIndex = if (requestedStartId == null) -1 else videos.indexOfFirst { it.id == requestedStartId }
 
     LaunchedEffect(requestedStartId, targetIndex, videos.size) {
@@ -265,6 +268,7 @@ private fun ShortsPager(
                     }
                 },
                 onRetry = { viewModel.retryPlayback(video.id) },
+                settings = settings,
             )
         }
 
@@ -295,6 +299,7 @@ private fun ShortPage(
     onOpen: () -> Unit,
     onChannelClick: () -> Unit,
     onRetry: () -> Unit,
+    settings: AppSettings,
 ) {
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         // The thumbnail stays visible until the player has a surface of its own,
@@ -310,26 +315,25 @@ private fun ShortPage(
             // No prepare here: the controller prepared this clip before the
             // surface was attached, so first frames come from the preloaded
             // source.
-            AndroidView(
-                factory = { viewContext ->
-                    PlayerView(viewContext).apply {
-                        this.player = player
-                        useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(
-                modifier =
-                    Modifier.fillMaxSize().clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        if (player.isPlaying) player.pause() else player.play()
+            PlayerGestureOverlay(
+                player = player,
+                isFullscreen = false,
+                isShorts = true,
+                settings = settings,
+                onBrightness = {},
+            ) {
+                AndroidView(
+                    factory = { viewContext ->
+                        PlayerView(viewContext).apply {
+                            this.player = player
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                        }
                     },
-            )
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
         if (isActive && playbackError != null) {

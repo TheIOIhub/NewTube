@@ -55,6 +55,7 @@ import androidx.media3.ui.PlayerView
 import com.example.newtube.R
 import com.example.newtube.di.PlaybackCacheEntryPoint
 import com.example.newtube.model.AppSettings
+import com.example.newtube.model.GestureSide
 import com.example.newtube.model.PlaybackSource
 import dagger.hilt.android.EntryPointAccessors
 
@@ -86,6 +87,15 @@ fun VideoPlayer(
     preferredAudioLanguage: String = "uk",
     showAudioControl: Boolean = true,
     onResizeModeChange: (Int) -> Unit = {},
+    gesturesEnabled: Boolean = true,
+    isShorts: Boolean = false,
+    doubleTapSeekSeconds: Int = 10,
+    gestureVolume: Boolean = true,
+    gestureBrightness: Boolean = true,
+    volumeGestureSide: GestureSide = GestureSide.RIGHT,
+    brightnessGestureSide: GestureSide = GestureSide.LEFT,
+    videoBrightness: Float? = null,
+    onBrightnessChange: (Float) -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
@@ -240,6 +250,21 @@ fun VideoPlayer(
     Box(
         modifier = modifier.background(Color.Black),
     ) {
+        PlayerGestureOverlay(
+            player = exoPlayer,
+            isFullscreen = isFullscreen,
+            isShorts = isShorts,
+            settings =
+                AppSettings(
+                    doubleTapSeekSeconds = doubleTapSeekSeconds,
+                    gestureVolume = gestureVolume,
+                    gestureBrightness = gestureBrightness,
+                    volumeGestureSide = volumeGestureSide,
+                    brightnessGestureSide = brightnessGestureSide,
+                    videoBrightness = videoBrightness,
+                ),
+            onBrightness = onBrightnessChange,
+        ) {
         AndroidView(
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
@@ -253,7 +278,7 @@ fun VideoPlayer(
             update = { view -> view.resizeMode = resizeMode },
         )
 
-        if (tapToTogglePlayback) {
+        if (tapToTogglePlayback && !gesturesEnabled) {
             Box(
                 modifier =
                     Modifier
@@ -441,6 +466,7 @@ fun VideoPlayer(
                     )
                 }
             }
+        }
         }
     }
 }

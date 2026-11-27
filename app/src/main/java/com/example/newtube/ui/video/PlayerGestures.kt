@@ -1,0 +1,234 @@
+package com.example.newtube.ui.video
+
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.media.AudioManager
+import android.view.WindowManager
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.media3.common.C
+import androidx.media3.common.Player
+import com.example.newtube.model.AppSettings
+import com.example.newtube.model.GestureSide
+import kotlinx.coroutines.delay
+import kotlin.math.abs
+
+private fun Context.findActivity(): Activity? {
+    var current: Context = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
+}
+
+/**
+ * Gesture layer above the player surface. It never consumes pointer events, so
+ * PlayerView's own controller keeps working on Watch; on Shorts, single tap is
+ * handled here because the controller is disabled.
+ */
+@Composable
+fun PlayerGestureOverlay(
+    player: Player,
+    isFullscreen: Boolean,
+    isShorts: Boolean,
+    settings: AppSettings,
+    onBrightness: (Float) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    var seekFeedback by remember { mutableStateOf<Int?>(null) }
+    var indicator by remember { mutableStateOf<Pair<Boolean, Float>?>(null) }
+
+    LaunchedEffect(seekFeedback) {
+        if (seekFeedback != null) {
+            delay(700)
+            seekFeedback = null
+        }
+    }
+    LaunchedEffect(indicator) {
+        if (indicator != null) {
+            delay(700)
+            indicator = null
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        content()
+
+        Box(
+            modifier =
+                Modifier.fillMaxSize().pointerInput(
+                    isFullscreen,
+                    isShorts,
+                    settings.doubleTapSeekSeconds,
+                    settings.gestureVolume,
+                    settings.gestureBrightness,
+                    settings.volumeGestureSide,
+                    settings.brightnessGestureSide,
+                ) {
+                    var lastTapAt = 0L
+                    var taps = 0
+                    var startX = 0f
+                    var startY = 0f
+                    var dragging = false
+                    var dragAction = GestureSide.OFF
+                    var currentFraction = 0.5f
+
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: continue
+                            when (event.type) {
+                                PointerEventType.Press -> {
+                                    startX = change.position.x
+                                    startY = change.position.y
+                                    dragging = false
+                                    dragAction = GestureSide.OFF
+                                }
+
+                                PointerEventType.Move -> {
+                                    if (!isFullscreen || dragging) continue
+                                    val dy = change.position.y - startY
+                                    val dx = change.position.x - startX
+                                    if (abs(dy) < 40f || abs(dy) < abs(dx)) continue
+                                    if (startY < 40f || size.height - startY < 40f) continue
+                                    val half = GestureMath.classifyHalf(startX.toInt(), size.width)
+                                    val volumeSide = settings.volumeGestureSide
+                                    val brightnessSide = settings.brightnessGestureSide
+                                    dragAction =
+                                        when {
+                                            half == 0 && brightnessSide == GestureSide.LEFT && settings.gestureBrightness ->
+                                                GestureSide.LEFT
+                                            half == 1 && volumeSide == GestureSide.RIGHT && settings.gestureVolume ->
+                                                GestureSide.RIGHT
+                                            else -> GestureSide.OFF
+                                        }
+                                    if (dragAction == GestureSide.OFF) continue
+                                    dragging = true
+                                    currentFraction =
+                                        if (dragAction == GestureSide.RIGHT) {
+                                            val max = audioManager.getStreamMaxVolume(C.STREAM_TYPE_MUSIC)
+                                            audioManager.getStreamVolume(C.STREAM_TYPE_MUSIC).toFloat() /
+                                                max.coerceAtLeast(1)
+                                        } else {
+                                            settings.videoBrightness
+                                                ?: activity?.window?.attributes?.screenBrightness?.takeIf { it > 0f }
+                                                ?: 0.5f
+                                        }
+                                }
+
+                                PointerEventType.Release -> {
+                                    if (dragging) {
+                                        val dy = (change.position.y - startY).toInt()
+                                        val next =
+                                            GestureMath.dragFraction(dy, size.height, currentFraction)
+                                        if (dragAction == GestureSide.RIGHT) {
+                                            val max = audioManager.getStreamMaxVolume(C.STREAM_TYPE_MUSIC)
+                                            audioManager.setStreamVolume(
+                                                C.STREAM_TYPE_MUSIC,
+                                                (next * max).toInt(),
+                                                0,
+                                            )
+                                        } else {
+                                            val params = activity?.window?.attributes
+                                            if (params != null) {
+                                                params.screenBrightness = next
+                                                activity.window.attributes = params
+                                                onBrightness(next)
+                                            }
+                                        }
+                                        indicator = (dragAction == GestureSide.RIGHT) to next
+                                        dragging = false
+                                        continue
+                                    }
+
+                                    val now = System.currentTimeMillis()
+                                    val side =
+                                        GestureMath.classifyThird(startX.toInt(), size.width)
+                                    taps = if (now - lastTapAt <= 550L) taps + 1 else 1
+                                    lastTapAt = now
+                                    if (isShorts && taps == 1) {
+                                        if (player.isPlaying) player.pause() else player.play()
+                                    }
+                                    if (taps >= 2 && side != 1) {
+                                        val delta =
+                                            GestureMath.seekDelta(taps, side, settings.doubleTapSeekSeconds)
+                                        if (delta != 0L) {
+                                            val target =
+                                                (player.currentPosition + delta).coerceIn(
+                                                    0L,
+                                                    player.duration.coerceAtLeast(0L),
+                                                )
+                                            player.seekTo(target)
+                                            seekFeedback = (delta / 1000L).toInt()
+                                        }
+                                    }
+                                }
+
+                                else -> Unit
+                            }
+                        }
+                    }
+                },
+        )
+
+        seekFeedback?.let { seconds ->
+            val label = if (seconds > 0) "+$seconds s" else "$seconds s"
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                modifier =
+                    Modifier
+                        .align(if (seconds > 0) Alignment.CenterEnd else Alignment.CenterStart)
+                        .padding(32.dp)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(12.dp),
+            )
+        }
+
+        indicator?.let { (isVolume, fraction) ->
+            Box(
+                modifier =
+                    Modifier
+                        .align(if (isVolume) Alignment.CenterEnd else Alignment.CenterStart)
+                        .fillMaxHeight(0.55f)
+                        .width(20.dp)
+                        .padding(vertical = 16.dp)
+                        .background(Color.Black.copy(alpha = 0.6f)),
+            ) {
+                Text(
+                    text = "${(fraction * 100).toInt()}%",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
+        }
+    }
+}

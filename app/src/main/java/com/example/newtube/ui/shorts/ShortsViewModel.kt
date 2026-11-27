@@ -44,6 +44,13 @@ class ShortsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<UiState<List<Video>>>(UiState.Loading)
     val uiState: StateFlow<UiState<List<Video>>> = _uiState
 
+    val settings: StateFlow<AppSettings> =
+        settingsRepository.settings.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = AppSettings(),
+        )
+
     /**
      * Paged view of the Room feed cache. The Pager is built on first collection
      * so the list-based pager contract below remains the single active feed

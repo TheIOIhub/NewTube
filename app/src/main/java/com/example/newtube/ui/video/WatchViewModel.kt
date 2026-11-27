@@ -81,6 +81,10 @@ class WatchViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.update { it.copy(resizeMode = mode) } }
     }
 
+    fun setVideoBrightness(brightness: Float) {
+        viewModelScope.launch { settingsRepository.update { it.copy(videoBrightness = brightness) } }
+    }
+
     fun savePosition(positionMs: Long) {
         val id = videoId
         if (id.isBlank()) return
