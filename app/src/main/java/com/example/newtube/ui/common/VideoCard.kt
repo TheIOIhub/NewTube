@@ -37,6 +37,7 @@ fun VideoCard(
     onClick: (String) -> Unit,
     onChannelClick: (String) -> Unit = {},
     modifier: Modifier = Modifier,
+    showMetadata: Boolean = true,
 ) {
     val meta = videoMetaLine(video)
     val viewsLabel =
@@ -67,6 +68,7 @@ fun VideoCard(
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
             )
             when {
+                !showMetadata -> Unit
                 video.isLive -> LiveBadge(Modifier.align(Alignment.BottomEnd).padding(8.dp))
                 video.duration > 0L ->
                     DurationBadge(
@@ -75,6 +77,7 @@ fun VideoCard(
                     )
             }
         }
+        if (showMetadata) {
         Row(modifier = Modifier.padding(top = 12.dp)) {
             ChannelAvatar(
                 url = video.authorAvatarUrl,
@@ -105,6 +108,7 @@ fun VideoCard(
                         },
                 )
             }
+        }
         }
     }
 }

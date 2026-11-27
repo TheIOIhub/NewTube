@@ -37,6 +37,13 @@ interface InvidiousService {
         @Query("hl") hl: String? = null,
     ): List<VideoDto>
 
+    @GET("api/v1/search/suggestions")
+    suspend fun getSearchSuggestions(
+        @Query("q") query: String,
+        @Query("region") region: String? = null,
+        @Query("hl") hl: String? = null,
+    ): SearchSuggestionsDto
+
     @GET("api/v1/channels/{channelId}/videos")
     suspend fun getChannelVideos(
         @Path("channelId") channelId: String,

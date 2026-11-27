@@ -40,6 +40,7 @@ import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.LocalPipMode
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
+import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.common.formatCount
 
 @Composable
@@ -150,6 +151,7 @@ private fun WatchContent(
                             onChannelClick = { channelId ->
                                 navController.navigate("channel/$channelId")
                             },
+                            showMetadata = rememberShowMetadata(),
                         )
                     }
                 }

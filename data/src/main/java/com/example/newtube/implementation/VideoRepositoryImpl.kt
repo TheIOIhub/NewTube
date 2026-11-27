@@ -13,6 +13,7 @@ import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
+import com.example.newtube.implementation.VideoContentFilter.applyContentSettings
 import com.example.newtube.remote.ChannelDto
 import com.example.newtube.remote.CommentDto
 import com.example.newtube.remote.FormatStreamDto
@@ -297,6 +298,18 @@ class VideoRepositoryImpl @Inject constructor(
             service.searchVideos(query, page = page, region = prefs.region, hl = prefs.language).toDomainVideos()
         }
 
+    override suspend fun searchSuggestions(query: String): List<String> =
+        withContext(Dispatchers.IO) {
+            if (query.isBlank()) {
+                emptyList()
+            } else {
+                runCatching {
+                    val prefs = contentPrefs()
+                    service.getSearchSuggestions(query, region = prefs.region, hl = prefs.language).suggestions
+                }.getOrDefault(emptyList())
+            }
+        }
+
     override suspend fun getVideoById(videoId: String): Video =
         withContext(Dispatchers.IO) {
             dao.getVideoById(videoId)?.toDomain()
@@ -314,7 +327,10 @@ class VideoRepositoryImpl @Inject constructor(
             VideoDetails(
                 video = video,
                 description = dto.description.trim(),
-                related = dto.recommendedVideos.mapNotNull { it.toDomainOrNull() },
+                related =
+                    dto.recommendedVideos
+                        .applyContentSettings(settingsRepository.settings.first())
+                        .mapNotNull { it.toDomainOrNull() },
                 playback = playback,
             )
         }
@@ -349,7 +365,8 @@ class VideoRepositoryImpl @Inject constructor(
         }
 
     private suspend fun List<VideoDto>.toDomainVideos(): List<Video> {
-        val entities = mapNotNull { it.toEntityOrNull() }
+        val entities =
+            applyContentSettings(settingsRepository.settings.first()).mapNotNull { it.toEntityOrNull() }
         dao.insertAll(entities)
         return entities.map { it.toDomain() }
     }

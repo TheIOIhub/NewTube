@@ -39,6 +39,7 @@ import com.example.newtube.R
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
 import com.example.newtube.ui.common.ShortsTile
+import com.example.newtube.ui.common.rememberShowMetadata
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.VideoCardSkeleton
@@ -108,6 +109,7 @@ fun HomeScreen(
                                 video = video,
                                 onClick = { navController.navigate("watch/$it") },
                                 onChannelClick = { navController.navigate("channel/$it") },
+                                showMetadata = rememberShowMetadata(),
                             )
                         }
                     }
@@ -173,7 +175,7 @@ private fun ShortsShelf(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(videos, key = { it.id }) { video ->
-                ShortsTile(video = video, onClick = onOpen)
+                ShortsTile(video = video, onClick = onOpen, showMetadata = rememberShowMetadata())
             }
         }
     }

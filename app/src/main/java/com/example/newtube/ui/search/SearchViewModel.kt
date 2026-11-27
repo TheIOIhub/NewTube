@@ -3,6 +3,7 @@ package com.example.newtube.ui.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.newtube.model.Video
+import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.toUserMessage
@@ -11,12 +12,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val repository: VideoRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<UiState<List<Video>>>(UiState.Success(emptyList()))
     val uiState: StateFlow<UiState<List<Video>>> = _uiState
@@ -24,26 +27,55 @@ class SearchViewModel @Inject constructor(
     private val _isLoadingMore = MutableStateFlow(false)
     val isLoadingMore: StateFlow<Boolean> = _isLoadingMore
 
+    private val _suggestions = MutableStateFlow<List<String>>(emptyList())
+    val suggestions: StateFlow<List<String>> = _suggestions
+
     private var query = ""
     private var nextPage = 1
     private var loading = false
     private var reachedEnd = false
     private var searchJob: Job? = null
+    private var suggestionsJob: Job? = null
 
     fun onQueryChange(value: String) {
         val trimmed = value.trim()
         if (trimmed == query) return
         query = trimmed
         searchJob?.cancel()
+        suggestionsJob?.cancel()
         reachedEnd = false
         nextPage = 1
         if (trimmed.isBlank()) {
+            _suggestions.value = emptyList()
             _uiState.value = UiState.Success(emptyList())
             return
         }
         searchJob =
             viewModelScope.launch {
                 delay(DEBOUNCE_MS)
+                loadFirstPage()
+            }
+        suggestionsJob =
+            viewModelScope.launch {
+                delay(SUGGESTION_DEBOUNCE_MS)
+                if (settingsRepository.settings.first().showSearchSuggestions) {
+                    _suggestions.value =
+                        runCatching { repository.searchSuggestions(trimmed) }.getOrDefault(emptyList())
+                }
+            }
+    }
+
+    /** Pick a completion: fill the field and search now, without another debounce. */
+    fun acceptSuggestion(value: String) {
+        query = value.trim()
+        suggestionsJob?.cancel()
+        _suggestions.value = emptyList()
+        if (query.isBlank()) return
+        searchJob?.cancel()
+        reachedEnd = false
+        nextPage = 1
+        searchJob =
+            viewModelScope.launch {
                 loadFirstPage()
             }
     }
@@ -97,5 +129,6 @@ class SearchViewModel @Inject constructor(
 
     private companion object {
         const val DEBOUNCE_MS = 500L
+        const val SUGGESTION_DEBOUNCE_MS = 250L
     }
 }

@@ -23,6 +23,9 @@ interface VideoRepository {
 
     suspend fun search(query: String, page: Int = 1): List<Video>
 
+    /** Up to a handful of query completions from Invidious; empty on failure. */
+    suspend fun searchSuggestions(query: String): List<String>
+
     suspend fun getVideoById(videoId: String): Video
 
     suspend fun getVideoDetails(

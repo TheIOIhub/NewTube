@@ -29,6 +29,7 @@ data class VideoDto(
     val viewCount: Long = 0,
     val lengthSeconds: Long = 0,
     val liveNow: Boolean = false,
+    val isFamilyFriendly: Boolean = true,
     // Only present in the /api/v1/videos/{videoId} response
     val hlsUrl: String? = null,
     val formatStreams: List<FormatStreamDto> = emptyList(),

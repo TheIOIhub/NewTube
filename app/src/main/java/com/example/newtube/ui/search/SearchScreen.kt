@@ -1,5 +1,6 @@
 package com.example.newtube.ui.search
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +40,7 @@ import com.example.newtube.ui.common.ErrorScreen
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
 import com.example.newtube.ui.common.VideoCardSkeleton
+import com.example.newtube.ui.common.rememberShowMetadata
 
 @Composable
 fun SearchScreen(
@@ -47,6 +50,7 @@ fun SearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
+    val suggestions by viewModel.suggestions.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
 
@@ -55,28 +59,48 @@ fun SearchScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = {
-                    query = it
-                    viewModel.onQueryChange(it)
-                },
-                placeholder = { Text(stringResource(R.string.search_hint)) },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (query.isNotBlank()) {
-                        IconButton(onClick = {
-                            query = ""
-                            viewModel.onQueryChange("")
-                        }) {
-                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.search_clear))
+        Column {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        viewModel.onQueryChange(it)
+                    },
+                    placeholder = { Text(stringResource(R.string.search_hint)) },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (query.isNotBlank()) {
+                            IconButton(onClick = {
+                                query = ""
+                                viewModel.onQueryChange("")
+                            }) {
+                                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.search_clear))
+                            }
                         }
+                    },
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                )
+            }
+            if (suggestions.isNotEmpty()) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                    suggestions.forEach { suggestion ->
+                        Text(
+                            text = suggestion,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        query = suggestion
+                                        viewModel.acceptSuggestion(suggestion)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                        )
                     }
-                },
-                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-            )
+                }
+            }
         }
 
         when (val state = uiState) {
@@ -97,6 +121,7 @@ fun SearchScreen(
                                 onChannelClick = { channelId ->
                                     navController.navigate("channel/$channelId")
                                 },
+                                showMetadata = rememberShowMetadata(),
                             )
                         }
                         item {

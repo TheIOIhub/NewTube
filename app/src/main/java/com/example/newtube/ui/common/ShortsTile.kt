@@ -29,6 +29,7 @@ fun ShortsTile(
     video: Video,
     onClick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    showMetadata: Boolean = true,
 ) {
     Box(
         modifier =
@@ -54,13 +55,15 @@ fun ShortsTile(
                         ),
                     ),
         )
-        Text(
-            text = video.title,
-            color = Color.White,
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
-        )
+        if (showMetadata) {
+            Text(
+                text = video.title,
+                color = Color.White,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+            )
+        }
     }
 }
