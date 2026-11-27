@@ -100,6 +100,19 @@ class ContentClientChainTest {
         }
 
     @Test
+    fun searchContinuationIsSentInsteadOfTheQuery() =
+        runTest {
+            server.enqueue(json("""{"contents":{}}"""))
+
+            client.search("page2", continuation = "search-token")
+
+            val search = server.takeRequest()
+            assertEquals("/youtubei/v1/search", search.path)
+            assertTrue(body(search).contains(""""continuation":"search-token""""))
+            assertTrue(!body(search).contains(""""query":"""))
+        }
+
+    @Test
     fun suggestionsAreReadFromRendererRuns() =
         runTest {
             server.enqueue(

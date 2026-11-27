@@ -52,13 +52,18 @@ class YouTubeContentClient(
     suspend fun search(
         query: String,
         params: String? = null,
+        continuation: String? = null,
     ): String =
         execute(ContentEndpoints.SEARCH) { contentClient ->
             buildJsonObject {
                 put("context", context(contentClient))
-                put("query", query)
-                if (params != null) {
-                    put("params", params)
+                if (continuation != null) {
+                    put("continuation", continuation)
+                } else {
+                    put("query", query)
+                    if (params != null) {
+                        put("params", params)
+                    }
                 }
             }
         }

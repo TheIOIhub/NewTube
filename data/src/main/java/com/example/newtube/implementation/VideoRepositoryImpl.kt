@@ -50,9 +50,18 @@ class VideoRepositoryImpl @Inject constructor(
     @Volatile
     private var shortsContinuation: String? = null
 
+    /** Search continuation is only valid for the query that produced it. */
+    @Volatile
+    private var searchQuery: String? = null
+
+    @Volatile
+    private var searchContinuation: String? = null
+
     /** Called when the user changes content preferences so cursors do not stay stale. */
     override suspend fun clearFeedCaches() {
         shortsContinuation = null
+        searchQuery = null
+        searchContinuation = null
         shortsCache.clearKnownChannelIds()
         shortsCache.clearFeedCache()
     }
@@ -137,12 +146,31 @@ class VideoRepositoryImpl @Inject constructor(
                 .take(limit.coerceAtLeast(0))
         }
 
+    /**
+     * Page 1 starts a fresh query; later pages reuse the token returned with
+     * the previous page. Without a token the caller sees an empty page, which
+     * tells the mediator to stop instead of re-appending the same videos.
+     */
     override suspend fun search(
         query: String,
         page: Int,
     ): List<Video> =
         withContext(Dispatchers.IO) {
-            contentClient.search(query).toFilteredVideos().take(HOME_FEED_LIMIT)
+            if (page > 1 && query != searchQuery) return@withContext emptyList()
+            val continuation =
+                if (page <= 1) {
+                    searchQuery = query
+                    searchContinuation = null
+                    null
+                } else {
+                    searchContinuation
+                }
+            if (page > 1 && continuation == null) return@withContext emptyList()
+
+            val feed = ContentParser.parseFeed(contentClient.search(query, null, continuation))
+            searchQuery = query
+            searchContinuation = feed.continuation?.takeIf { it.isNotBlank() }
+            feed.items.toFilteredVideos().take(HOME_FEED_LIMIT)
         }
 
     override suspend fun searchSuggestions(query: String): List<String> =

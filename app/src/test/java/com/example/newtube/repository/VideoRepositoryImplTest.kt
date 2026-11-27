@@ -59,7 +59,7 @@ class VideoRepositoryImplTest {
         coEvery { channelDao.getChannelById(any()) } returns null
         coJustRun { channelDao.insert(any()) }
         coEvery { contentClient.browse(any(), any()) } returns feedJson()
-        coEvery { contentClient.search(any(), any()) } returns feedJson()
+        coEvery { contentClient.search(any(), any(), any()) } returns feedJson()
         coEvery { contentClient.player(any()) } returns playerJson()
         coEvery { contentClient.next(any()) } returns commentsJson()
         coEvery { contentClient.suggestions(any()) } returns emptyList()
@@ -75,7 +75,7 @@ class VideoRepositoryImplTest {
 
             assertEquals(listOf("1", "2"), feed.map { it.id })
             coVerify(exactly = 1) { contentClient.browse(any(), any()) }
-            coVerify(exactly = 0) { contentClient.search(any(), any()) }
+            coVerify(exactly = 0) { contentClient.search(any(), any(), any()) }
         }
 
     @Test
@@ -110,7 +110,7 @@ class VideoRepositoryImplTest {
 
             assertEquals(setOf("short", "reel"), shorts.map { it.id }.toSet())
             coVerify(exactly = 1) { contentClient.browse("FEshorts", null) }
-            coVerify(exactly = 0) { contentClient.search(any(), any()) }
+            coVerify(exactly = 0) { contentClient.search(any(), any(), any()) }
         }
 
     @Test
@@ -171,13 +171,30 @@ class VideoRepositoryImplTest {
     @Test
     fun `search maps one InnerTube search response`() =
         runBlocking {
-            coEvery { contentClient.search("query", null) } returns
+            coEvery { contentClient.search("query", null, null) } returns
                 feedJson(FeedItem("1"), FeedItem("2"))
 
             val result = repository.search("query")
 
             assertEquals(listOf("1", "2"), result.map { it.id })
-            coVerify(exactly = 1) { contentClient.search("query", null) }
+            coVerify(exactly = 1) { contentClient.search("query", null, null) }
+        }
+
+    @Test
+    fun `search page 2 uses the continuation and a missing token ends pagination`() =
+        runBlocking {
+            coEvery { contentClient.search("query", null, null) } returns
+                feedJson(FeedItem("page1"), continuation = "search-token")
+            coEvery { contentClient.search("query", null, "search-token") } returns
+                feedJson(FeedItem("page2"))
+
+            assertEquals(listOf("page1"), repository.search("query", 1).map { it.id })
+            assertEquals(listOf("page2"), repository.search("query", 2).map { it.id })
+            coVerify { contentClient.search("query", null, "search-token") }
+
+            // Page 2 had no continuation, so the mediator must see an empty page and stop.
+            assertTrue(repository.search("query", 3).isEmpty())
+            coVerify(exactly = 2) { contentClient.search("query", null, any()) }
         }
 
     @Test
