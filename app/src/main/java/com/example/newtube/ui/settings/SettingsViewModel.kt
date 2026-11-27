@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
+import com.example.newtube.model.GestureSide
 import com.example.newtube.model.ThemeMode
 import com.example.newtube.repository.AccountRepository
 import com.example.newtube.repository.HistoryRepository
@@ -60,6 +61,58 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setDefaultQuality(maxHeight) }
     }
 
+    fun setContentCountry(value: String) = update { it.copy(contentCountry = value) }
+
+    fun setContentLanguage(value: String) = update { it.copy(contentLanguage = value) }
+
+    fun setPreferredAudioLanguage(value: String) = update { it.copy(preferredAudioLanguage = value) }
+
+    fun setAppLanguage(value: String) = update { it.copy(appLanguage = value) }
+
+    fun setPreferOriginalAudio(enabled: Boolean) = update { it.copy(preferOriginalAudio = enabled) }
+
+    fun setShowSearchSuggestions(enabled: Boolean) = update { it.copy(showSearchSuggestions = enabled) }
+
+    fun setAgeRestrictedContent(enabled: Boolean) = update { it.copy(ageRestrictedContent = enabled) }
+
+    fun setSafeMode(enabled: Boolean) = update { it.copy(safeMode = enabled) }
+
+    fun setShowMetadata(enabled: Boolean) = update { it.copy(showMetadata = enabled) }
+
+    fun setAutoplayNext(enabled: Boolean) = update { it.copy(autoplayNext = enabled) }
+
+    fun setResumePlayback(enabled: Boolean) = update { it.copy(resumePlayback = enabled) }
+
+    fun setDoubleTapSeekSeconds(seconds: Int) = update { it.copy(doubleTapSeekSeconds = seconds) }
+
+    fun setResizeMode(mode: Int) = update { it.copy(resizeMode = mode) }
+
+    fun setVideoBrightness(brightness: Float?) = update { it.copy(videoBrightness = brightness) }
+
+    fun setGestureVolume(enabled: Boolean) = update { it.copy(gestureVolume = enabled) }
+
+    fun setGestureBrightness(enabled: Boolean) = update { it.copy(gestureBrightness = enabled) }
+
+    fun setGestureZoom(enabled: Boolean) = update { it.copy(gestureZoom = enabled) }
+
+    fun setGestureSpeed(enabled: Boolean) = update { it.copy(gestureSpeed = enabled) }
+
+    fun setVolumeGestureSide(side: GestureSide) =
+        update { current ->
+            val (volume, brightness) = assignGestureSide(side, forVolume = true, current = current)
+            current.copy(volumeGestureSide = volume, brightnessGestureSide = brightness)
+        }
+
+    fun setBrightnessGestureSide(side: GestureSide) =
+        update { current ->
+            val (volume, brightness) = assignGestureSide(side, forVolume = false, current = current)
+            current.copy(volumeGestureSide = volume, brightnessGestureSide = brightness)
+        }
+
+    private fun update(transform: (AppSettings) -> AppSettings) {
+        viewModelScope.launch { settingsRepository.update(transform) }
+    }
+
     fun signOut() {
         viewModelScope.launch { accountRepository.signOut() }
     }
@@ -69,6 +122,33 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             historyRepository.clearLocal()
             playbackPositions.clearAll()
+        }
+    }
+
+    internal companion object {
+        /** One action per side: a collision moves the other action to the free side. */
+        fun assignGestureSide(
+            side: GestureSide,
+            forVolume: Boolean,
+            current: AppSettings,
+        ): Pair<GestureSide, GestureSide> {
+            if (side == GestureSide.OFF) {
+                return if (forVolume) {
+                    GestureSide.OFF to current.brightnessGestureSide
+                } else {
+                    current.volumeGestureSide to GestureSide.OFF
+                }
+            }
+            val other = if (side == GestureSide.LEFT) GestureSide.RIGHT else GestureSide.LEFT
+            return if (forVolume) {
+                val brightness =
+                    if (current.brightnessGestureSide == side) other else current.brightnessGestureSide
+                side to brightness
+            } else {
+                val volume =
+                    if (current.volumeGestureSide == side) other else current.volumeGestureSide
+                volume to side
+            }
         }
     }
 }

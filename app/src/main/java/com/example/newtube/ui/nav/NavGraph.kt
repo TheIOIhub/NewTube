@@ -1,7 +1,10 @@
 package com.example.newtube.ui.nav
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -15,7 +18,12 @@ import com.example.newtube.ui.home.HomeScreen
 import com.example.newtube.ui.login.LoginScreen
 import com.example.newtube.ui.notifications.NotificationsScreen
 import com.example.newtube.ui.search.SearchScreen
+import com.example.newtube.ui.settings.AppearanceSettingsScreen
+import com.example.newtube.ui.settings.ContentSettingsScreen
+import com.example.newtube.ui.settings.GestureSettingsScreen
 import com.example.newtube.ui.settings.SettingsScreen
+import com.example.newtube.ui.settings.SettingsViewModel
+import com.example.newtube.ui.settings.VideoAudioSettingsScreen
 import com.example.newtube.ui.shorts.ShortsScreen
 import com.example.newtube.ui.subscriptions.SubscriptionsScreen
 import com.example.newtube.ui.video.WatchScreen
@@ -64,6 +72,26 @@ fun NavGraph(navController: NavHostController, modifier: Modifier = Modifier) {
         composable("you") { YouScreen(navController) }
         composable("history") { HistoryScreen(navController) }
         composable("settings") { SettingsScreen(navController) }
+        composable("settings/appearance") {
+            val viewModel: SettingsViewModel = hiltViewModel()
+            val settings by viewModel.settings.collectAsState()
+            AppearanceSettingsScreen(viewModel, settings) { navController.popBackStack() }
+        }
+        composable("settings/video") {
+            val viewModel: SettingsViewModel = hiltViewModel()
+            val settings by viewModel.settings.collectAsState()
+            VideoAudioSettingsScreen(viewModel, settings) { navController.popBackStack() }
+        }
+        composable("settings/content") {
+            val viewModel: SettingsViewModel = hiltViewModel()
+            val settings by viewModel.settings.collectAsState()
+            ContentSettingsScreen(viewModel, settings) { navController.popBackStack() }
+        }
+        composable("settings/gestures") {
+            val viewModel: SettingsViewModel = hiltViewModel()
+            val settings by viewModel.settings.collectAsState()
+            GestureSettingsScreen(viewModel, settings) { navController.popBackStack() }
+        }
         composable("login") { LoginScreen(navController) }
         composable("about") { AboutScreen(navController) }
         composable("notifications") { NotificationsScreen(navController) }

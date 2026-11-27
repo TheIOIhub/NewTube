@@ -2,12 +2,14 @@ package com.example.newtube.ui.settings
 
 import com.example.newtube.model.AccountState
 import com.example.newtube.model.AppSettings
+import com.example.newtube.model.GestureSide
 import com.example.newtube.model.ThemeMode
 import com.example.newtube.model.WatchHistoryEntry
 import com.example.newtube.repository.AccountRepository
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.PlaybackPositionRepository
 import com.example.newtube.repository.SettingsRepository
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -32,10 +34,13 @@ class SettingsViewModelTest {
     private val positions: PlaybackPositionRepository = mockk(relaxed = true)
     private val account: AccountRepository = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
+    private var lastTransform: ((AppSettings) -> AppSettings)? = null
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        lastTransform = null
+        coEvery { repository.update(any()) } answers { lastTransform = firstArg() }
         every { history.observeLocal(1) } returns flowOf(emptyList())
         every { account.state } returns MutableStateFlow(AccountState.SignedOut)
     }
@@ -108,6 +113,58 @@ class SettingsViewModelTest {
             coVerify { repository.setUseRemoteHistory(false) }
             coVerify { repository.setDefaultQuality(1080) }
         }
+
+    @Test
+    fun `setContentCountry writes US through update`() =
+        runTest {
+            every { repository.settings } returns flowOf(AppSettings())
+
+            val viewModel = viewModel()
+            viewModel.setContentCountry("US")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify { repository.update(any()) }
+            assertEquals("US", lastTransform!!(AppSettings()).contentCountry)
+        }
+
+    @Test
+    fun `setDoubleTapSeekSeconds writes 30 through update`() =
+        runTest {
+            every { repository.settings } returns flowOf(AppSettings())
+
+            val viewModel = viewModel()
+            viewModel.setDoubleTapSeekSeconds(30)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify { repository.update(any()) }
+            assertEquals(30, lastTransform!!(AppSettings()).doubleTapSeekSeconds)
+        }
+
+    @Test
+    fun `setVideoBrightness writes half brightness through update`() =
+        runTest {
+            every { repository.settings } returns flowOf(AppSettings())
+
+            val viewModel = viewModel()
+            viewModel.setVideoBrightness(0.5f)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify { repository.update(any()) }
+            assertEquals(0.5f, lastTransform!!(AppSettings()).videoBrightness ?: 0f, 0.001f)
+        }
+
+    @Test
+    fun `assigning volume to an occupied side swaps brightness to the other side`() {
+        val (volume, brightness) =
+            SettingsViewModel.assignGestureSide(
+                side = GestureSide.LEFT,
+                forVolume = true,
+                current = AppSettings(volumeGestureSide = GestureSide.RIGHT, brightnessGestureSide = GestureSide.LEFT),
+            )
+
+        assertEquals(GestureSide.LEFT, volume)
+        assertEquals(GestureSide.RIGHT, brightness)
+    }
 
     @Test
     fun `settings exposes the account state`() =

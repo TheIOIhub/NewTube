@@ -120,4 +120,49 @@
     <string name="category_sports">Спорт</string>
     <string name="category_news">Новини</string>
     <string name="category_technology">Технології</string>
+
+    <string name="settings_section_appearance">Зовнішній вигляд</string>
+    <string name="settings_section_video_audio">Відео та аудіо</string>
+    <string name="settings_section_content">Контент</string>
+    <string name="settings_section_gestures">Жести</string>
+
+    <string name="settings_app_language">Мова застосунку</string>
+    <string name="settings_app_language_limited">Зміна працює на Android 13 або новішому</string>
+    <string name="app_language_system">Системна</string>
+    <string name="app_language_uk">Українська</string>
+    <string name="app_language_en">English</string>
+
+    <string name="settings_content_country">Країна контента</string>
+    <string name="settings_content_language">Мова контента</string>
+    <string name="settings_preferred_audio_language">Бажана аудіомова</string>
+    <string name="settings_prefer_original_audio">Перевага оригінальній аудіодоріжці</string>
+    <string name="settings_show_search_suggestions">Пропозиції під час пошуку</string>
+    <string name="settings_age_restricted_content">Контент із віковими обмеженнями</string>
+    <string name="settings_safe_mode">Безпечний режим</string>
+    <string name="settings_show_metadata">Показувати метадані відео</string>
+
+    <string name="settings_autoplay_next">Автовідтворення наступного відео</string>
+    <string name="settings_resume_playback">Відновлювати перерване відтворення</string>
+    <string name="settings_seek_seconds">Перемотування подвійним тапом</string>
+    <string name="settings_seek_seconds_value">%1$d с</string>
+    <string name="settings_default_shorts_quality">Якість Shorts</string>
+    <string name="settings_quality_mobile">Обмеження на мобільних даних</string>
+    <string name="settings_resize_mode">Спосіб заповнення екрана</string>
+    <string name="resize_fit">Вписати</string>
+    <string name="resize_fill">Заповнити</string>
+    <string name="resize_zoom">Обрізати</string>
+
+    <string name="settings_gesture_volume">Жест гучності</string>
+    <string name="settings_gesture_brightness">Жест яскравості</string>
+    <string name="settings_gesture_zoom">Жест масштабу</string>
+    <string name="settings_gesture_speed">Жест швидкості</string>
+    <string name="settings_gesture_side_volume">Сторона жесту гучності</string>
+    <string name="settings_gesture_side_brightness">Сторона жесту яскравості</string>
+    <string name="gesture_side_left">Ліва</string>
+    <string name="gesture_side_right">Права</string>
+    <string name="gesture_side_off">Вимкнено</string>
+    <string name="settings_gesture_zoom_summary">Поки недоступно</string>
+    <string name="settings_gesture_speed_summary">Поки недоступно</string>
+
+    <string name="category_for_you">Для вас</string>
 </resources>
