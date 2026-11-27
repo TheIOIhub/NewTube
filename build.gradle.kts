@@ -16,8 +16,7 @@ buildscript {
     }
 }
 
-// ktlint is applied to the modules only: the root project also contains the
-// legacy `src/` folder, which is not part of any build.
+// ktlint is applied to the modules only: the root project has no Kotlin sources.
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
 }
