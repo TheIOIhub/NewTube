@@ -22,6 +22,7 @@ class ContentClientChainTest {
     private val repository =
         object : ContentConfigRepository {
             override val config: Flow<ContentConfig> = configFlow
+
             override suspend fun refresh(): Result<ContentConfig> = Result.success(configFlow.value)
 
             override fun bundled(): ContentConfig = bundledContentConfig()
