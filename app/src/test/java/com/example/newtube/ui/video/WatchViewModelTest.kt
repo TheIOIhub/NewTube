@@ -147,6 +147,21 @@ class WatchViewModelTest {
         }
 
     @Test
+    fun `resume is skipped when the setting is off`() =
+        runTest {
+            every { settings.settings } returns flowOf(AppSettings(resumePlayback = false))
+            coEvery { repository.getVideoDetails("v1", 720) } returns details()
+            coEvery { playbackPositions.positionFor("v1") } returns 124_000L
+
+            val viewModel = WatchViewModel(repository, playbackPositions, history, settings)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(0L, (viewModel.uiState.value as UiState.Success).data.startPositionMs)
+            io.mockk.coVerify(exactly = 0) { playbackPositions.positionFor("v1") }
+        }
+
+    @Test
     fun `nextVideo is null when autoplay is disabled`() =
         runTest {
             every { settings.settings } returns flowOf(AppSettings(autoplayNext = false))

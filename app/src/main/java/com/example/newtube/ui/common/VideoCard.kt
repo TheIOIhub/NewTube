@@ -77,17 +77,18 @@ fun VideoCard(
                     )
             }
         }
-        if (showMetadata) {
         Row(modifier = Modifier.padding(top = 12.dp)) {
-            ChannelAvatar(
-                url = video.authorAvatarUrl,
-                name = video.channelName,
-                modifier =
-                    Modifier.clickable(enabled = video.channelId.isNotBlank()) {
-                        onChannelClick(video.channelId)
-                    },
-            )
-            Spacer(modifier = Modifier.width(12.dp))
+            if (showMetadata) {
+                ChannelAvatar(
+                    url = video.authorAvatarUrl,
+                    name = video.channelName,
+                    modifier =
+                        Modifier.clickable(enabled = video.channelId.isNotBlank()) {
+                            onChannelClick(video.channelId)
+                        },
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = video.title,
@@ -95,20 +96,21 @@ fun VideoCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = metadata,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier =
-                        Modifier.clickable(enabled = video.channelId.isNotBlank()) {
-                            onChannelClick(video.channelId)
-                        },
-                )
+                if (showMetadata) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = metadata,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier =
+                            Modifier.clickable(enabled = video.channelId.isNotBlank()) {
+                                onChannelClick(video.channelId)
+                            },
+                    )
+                }
             }
-        }
         }
     }
 }

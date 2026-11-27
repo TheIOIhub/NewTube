@@ -10,7 +10,7 @@ import com.example.newtube.remote.VideoDto
  */
 object VideoContentFilter {
     private val ADULT_TERMS =
-        listOf("18+", "adult", "porn", "porno", "xnxx", "секс", "порно", "-erotic")
+        listOf("18+", "adult", "porn", "porno", "xnxx", "секс", "порно", "erotic")
 
     fun List<VideoDto>.applyContentSettings(settings: AppSettings): List<VideoDto> =
         filter { dto ->

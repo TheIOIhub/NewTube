@@ -44,6 +44,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -85,6 +86,7 @@ fun VideoPlayer(
     onSavePosition: (Long) -> Unit = {},
     tapToTogglePlayback: Boolean = false,
     preferredAudioLanguage: String = "uk",
+    preferOriginalAudio: Boolean = true,
     showAudioControl: Boolean = true,
     onResizeModeChange: (Int) -> Unit = {},
     gesturesEnabled: Boolean = true,
@@ -155,9 +157,12 @@ fun VideoPlayer(
         }
     }
 
-    LaunchedEffect(quality, preferredAudioLanguage) {
+    LaunchedEffect(quality, preferredAudioLanguage, preferOriginalAudio) {
         val parameters =
-            trackSelector.buildUponParameters().setPreferredAudioLanguage(preferredAudioLanguage)
+            trackSelector
+                .buildUponParameters()
+                .setPreferredAudioLanguage(preferredAudioLanguage)
+                .setPreferredAudioRoleFlags(if (preferOriginalAudio) C.ROLE_FLAG_MAIN else 0)
         if (quality == AUTO_QUALITY) {
             parameters.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
         } else {
@@ -269,6 +274,7 @@ fun VideoPlayer(
                     videoBrightness = videoBrightness,
                 ),
             onBrightness = onBrightnessChange,
+            enabled = gesturesEnabled,
         ) {
         AndroidView(
             factory = { viewContext ->

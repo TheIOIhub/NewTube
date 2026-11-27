@@ -71,6 +71,8 @@ interface InvidiousService {
         @Query("q") query: String,
         @Query("type") type: String = "channel",
         @Query("page") page: Int = 1,
+        @Query("region") region: String? = null,
+        @Query("hl") hl: String? = null,
     ): List<ChannelSearchDto>
 
     /**

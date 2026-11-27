@@ -60,8 +60,10 @@ class VideoRepositoryImpl @Inject constructor(
         settingsRepository.settings.first().let { ContentPrefs(it.contentCountry, it.contentLanguage) }
 
     /** Called when the user changes content country/language so caches do not stay stale. */
-    suspend fun clearFeedCaches() {
+    override suspend fun clearFeedCaches() {
+        shortsChannelMutex.withLock { usedShortsChannels.clear() }
         shortsCache.clearKnownChannelIds()
+        shortsCache.clearFeedCache()
     }
 
     override suspend fun getTrending(): List<Video> =
@@ -263,7 +265,13 @@ class VideoRepositoryImpl @Inject constructor(
                         .map { query ->
                             async {
                                 runCatching {
-                                    query to service.searchChannels(query).map { it.authorId }
+                                    query to
+                                        service
+                                            .searchChannels(
+                                                query,
+                                                region = contentPrefs().region,
+                                                hl = contentPrefs().language,
+                                            ).map { it.authorId }
                                 }
                             }
                         }.awaitAll()

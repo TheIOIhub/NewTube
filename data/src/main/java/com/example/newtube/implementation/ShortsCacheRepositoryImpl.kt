@@ -61,6 +61,10 @@ class ShortsCacheRepositoryImpl @Inject constructor(
     override suspend fun clearKnownChannelIds() {
         dataStore.edit { prefs -> prefs.remove(KNOWN_CHANNELS_KEY) }
     }
+
+    override suspend fun clearFeedCache() {
+        dao.clear()
+    }
 }
 
 /** Maps Room's rows to domain videos without exposing the DAO to callers. */

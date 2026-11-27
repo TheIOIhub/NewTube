@@ -60,6 +60,7 @@ class VideoRepositoryImplTest {
         coEvery { historyRepository.observeLocal(any()) } returns flowOf(emptyList())
         coEvery { shortsCache.knownChannelIds() } returns emptySet()
         coJustRun { shortsCache.rememberChannelIds(any()) }
+        coJustRun { shortsCache.clearFeedCache() }
         coJustRun { dao.insertAll(any()) }
     }
 
@@ -148,7 +149,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `shorts discovery uses a Ukrainian query when no channels are cached`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns listOf(ChannelSearchDto(authorId = "UCua"))
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns listOf(ChannelSearchDto(authorId = "UCua"))
             coEvery { service.getChannelShorts("UCua", any()) } returns
                 ChannelVideosDto(videos = listOf(videoDto("short-ua", length = 30)), continuation = null)
             coJustRun { dao.insertAll(any()) }
@@ -160,8 +161,35 @@ class VideoRepositoryImplTest {
                     withArg { assertTrue(it.any { char -> char in '\u0400'..'\u04FF' }) },
                     any(),
                     any(),
+                    any(),
+                    any(),
                 )
             }
+        }
+
+    @Test
+    fun `shorts discovery passes region and language to channel search`() =
+        runBlocking {
+            settingsFlow.value = AppSettings(contentCountry = "US", contentLanguage = "en")
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
+                listOf(ChannelSearchDto(authorId = "UCua"))
+            coEvery { service.getChannelShorts("UCua", any()) } returns
+                ChannelVideosDto(videos = listOf(videoDto("ua-short", length = 30)), continuation = null)
+
+            repository.getShorts(1)
+
+            coVerify { service.searchChannels(any(), any(), any(), "US", "en") }
+        }
+
+    @Test
+    fun `clearFeedCaches clears repository channel rotation too`() =
+        runBlocking {
+            coJustRun { shortsCache.clearKnownChannelIds() }
+            coJustRun { shortsCache.clearFeedCache() }
+
+            repository.clearFeedCaches()
+
+            coVerify { shortsCache.clearFeedCache() }
         }
 
     @Test
@@ -460,7 +488,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShorts uses discovered channels and keeps 1 to 180 seconds`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
                 listOf(ChannelSearchDto(authorId = "UCa"), ChannelSearchDto(authorId = "UCb"))
             coEvery { service.getChannelShorts("UCa", null) } returns
                 ChannelVideosDto(
@@ -485,7 +513,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShorts skips a channel that fails`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
                 listOf(ChannelSearchDto(authorId = "UCbad"), ChannelSearchDto(authorId = "UCgood"))
             coEvery { service.getChannelShorts("UCbad", null) } throws IOException("500")
             coEvery { service.getChannelShorts("UCgood", null) } returns
@@ -498,7 +526,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShorts falls back to curated channels when discovery is empty`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns emptyList()
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns emptyList()
             coEvery { service.getChannelShorts(any(), null) } returns
                 ChannelVideosDto(videos = listOf(videoDto("fallback", length = 30)))
             coJustRun { dao.insertAll(any()) }
@@ -510,7 +538,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShorts throws when every channel request fails`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
                 listOf(
                     ChannelSearchDto(authorId = "UCa"),
                     ChannelSearchDto(authorId = "UCb"),
@@ -526,7 +554,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShorts caps per channel contribution and mixes many channels`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
                 (1..8).map { ChannelSearchDto(authorId = "UC$it") }
             coEvery { service.getChannelShorts(any(), null) } answers {
                 val channel = firstArg<String>()
@@ -550,7 +578,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShorts tops up from fallback when discovery pool is small`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } answers {
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } answers {
                 listOf(ChannelSearchDto(authorId = "UC-a"), ChannelSearchDto(authorId = "UC-b"))
             }
             coEvery { service.getChannelShorts(any(), null) } answers {
@@ -567,7 +595,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShorts caps per channel when authorId is blank`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
                 (1..4).map { ChannelSearchDto(authorId = "UC$it") }
             coEvery { service.getChannelShorts(any(), null) } answers {
                 val channel = firstArg<String>()
@@ -588,7 +616,7 @@ class VideoRepositoryImplTest {
     @Test
     fun `getShorts rotates through fallback pool when discovery is empty`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns emptyList()
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns emptyList()
             coEvery { service.getChannelShorts(any(), null) } answers {
                 val channel = firstArg<String>()
                 ChannelVideosDto(videos = listOf(videoDto("fb-$channel", length = 30).copy(authorId = channel)))
@@ -616,7 +644,7 @@ class VideoRepositoryImplTest {
             val shorts = repository.getShorts(1)
 
             assertEquals(3, shorts.size)
-            coVerify(exactly = 0) { service.searchChannels(any(), any(), any()) }
+            coVerify(exactly = 0) { service.searchChannels(any(), any(), any(), any(), any()) }
             coVerify(exactly = 0) { shortsCache.rememberChannelIds(any()) }
         }
 
@@ -628,21 +656,21 @@ class VideoRepositoryImplTest {
             coEvery { service.getChannelShorts(any(), null) } throws IOException("500")
             coEvery { service.getChannelShorts("UCnew", null) } returns
                 ChannelVideosDto(videos = listOf(videoDto("short-new", length = 30)))
-            coEvery { service.searchChannels(any(), any(), any()) } returns
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns
                 listOf(ChannelSearchDto(authorId = "UCnew"))
             coJustRun { dao.insertAll(any()) }
 
             val shorts = repository.getShorts(1)
 
             assertEquals(listOf("short-new"), shorts.map { it.id })
-            coVerify { service.searchChannels(any(), any(), any()) }
+            coVerify { service.searchChannels(any(), any(), any(), any(), any()) }
             coVerify { shortsCache.rememberChannelIds(known + "UCnew") }
         }
 
     @Test
     fun `preservesCuratedFallback`() =
         runBlocking {
-            coEvery { service.searchChannels(any(), any(), any()) } returns emptyList()
+            coEvery { service.searchChannels(any(), any(), any(), any(), any()) } returns emptyList()
             coEvery { service.getChannelShorts(any(), null) } returns
                 ChannelVideosDto(videos = listOf(videoDto("fallback", length = 30)))
             coJustRun { dao.insertAll(any()) }

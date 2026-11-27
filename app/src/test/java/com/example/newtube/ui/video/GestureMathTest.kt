@@ -53,6 +53,30 @@ class GestureMathTest {
     }
 
     @Test
+    fun `seek target accumulates from the sequence base not the moving position`() {
+        assertEquals(21_000L, GestureMath.seekTarget(1_000L, taps = 2, side = 2, seconds = 10, duration = 300_000L))
+        assertEquals(31_000L, GestureMath.seekTarget(1_000L, taps = 3, side = 2, seconds = 10, duration = 300_000L))
+        assertEquals(10_000L, GestureMath.seekTarget(30_000L, taps = 2, side = 0, seconds = 10, duration = 300_000L))
+    }
+
+    @Test
+    fun `reassigned gesture sides drive the drag action`() {
+        val swapped = GestureMath.resolveSides(GestureSide.LEFT, GestureSide.RIGHT)
+        assertEquals(
+            DragAction.VOLUME,
+            GestureMath.dragAction(0, swapped.first, swapped.second, true, true),
+        )
+        assertEquals(
+            DragAction.BRIGHTNESS,
+            GestureMath.dragAction(1, swapped.first, swapped.second, true, true),
+        )
+        assertEquals(
+            null,
+            GestureMath.dragAction(0, GestureSide.RIGHT, GestureSide.LEFT, false, false),
+        )
+    }
+
+    @Test
     fun `off sides stay off`() {
         val (volume, brightness) =
             GestureMath.resolveSides(GestureSide.OFF, GestureSide.LEFT)

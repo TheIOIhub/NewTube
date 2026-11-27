@@ -18,6 +18,9 @@ interface VideoRepository {
     /** Regionalised feed ranked by local history and subscriptions. */
     suspend fun getForYouFeed(): List<Video>
 
+    /** Called after a region/language change; drops channel rotation and cached feeds. */
+    suspend fun clearFeedCaches()
+
     /** Shorts feed emulated with a `#shorts` search, filtered to 1..60 seconds. */
     suspend fun getShorts(page: Int = 1): List<Video>
 

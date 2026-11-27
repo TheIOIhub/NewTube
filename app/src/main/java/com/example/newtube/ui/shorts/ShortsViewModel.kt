@@ -142,8 +142,13 @@ class ShortsViewModel @Inject constructor(
 
     /** Drop discovered channel ids and refetch so a region change is visible immediately. */
     fun onContentPreferencesChanged() {
-        viewModelScope.launch { shortsCache.clearKnownChannelIds() }
-        reload()
+        appended.clear()
+        nextPage = 1
+        reachedEnd = false
+        viewModelScope.launch {
+            repository.clearFeedCaches()
+            reload()
+        }
     }
 
     fun dismissRefreshError() {

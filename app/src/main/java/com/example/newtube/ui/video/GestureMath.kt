@@ -2,6 +2,8 @@ package com.example.newtube.ui.video
 
 import com.example.newtube.model.GestureSide
 
+internal enum class DragAction { VOLUME, BRIGHTNESS }
+
 /** Pure gesture arithmetic, unit-testable without a device. */
 internal object GestureMath {
     fun classifyThird(
@@ -29,6 +31,36 @@ internal object GestureMath {
             0 -> -(taps * seconds * 1_000L)
             2 -> taps * seconds * 1_000L
             else -> 0L
+        }
+
+    /** Total seek is measured from the first tap of the sequence, never from the moving position. */
+    fun seekTarget(
+        basePosition: Long,
+        taps: Int,
+        side: Int,
+        seconds: Int,
+        duration: Long,
+    ): Long {
+        val delta = seekDelta(taps, side, seconds)
+        if (delta == 0L) return basePosition.coerceIn(0L, duration.coerceAtLeast(0L))
+        val upper = if (duration > 0) duration else Long.MAX_VALUE
+        return (basePosition + delta).coerceIn(0L, upper)
+    }
+
+    /** Honours reassigned sides and independent enable flags. */
+    fun dragAction(
+        half: Int,
+        volumeSide: GestureSide,
+        brightnessSide: GestureSide,
+        volumeEnabled: Boolean,
+        brightnessEnabled: Boolean,
+    ): DragAction? =
+        when {
+            half == 0 && volumeSide == GestureSide.LEFT && volumeEnabled -> DragAction.VOLUME
+            half == 0 && brightnessSide == GestureSide.LEFT && brightnessEnabled -> DragAction.BRIGHTNESS
+            half == 1 && volumeSide == GestureSide.RIGHT && volumeEnabled -> DragAction.VOLUME
+            half == 1 && brightnessSide == GestureSide.RIGHT && brightnessEnabled -> DragAction.BRIGHTNESS
+            else -> null
         }
 
     fun dragFraction(

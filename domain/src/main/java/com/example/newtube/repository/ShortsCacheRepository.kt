@@ -21,4 +21,7 @@ interface ShortsCacheRepository {
 
     /** Drop discovered channel ids so the next load rediscovers for the new region. */
     suspend fun clearKnownChannelIds()
+
+    /** Drop the cached feed so a region change cannot keep showing old clips. */
+    suspend fun clearFeedCache()
 }

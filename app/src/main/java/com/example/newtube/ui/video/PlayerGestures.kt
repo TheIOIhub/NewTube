@@ -55,8 +55,13 @@ fun PlayerGestureOverlay(
     isShorts: Boolean,
     settings: AppSettings,
     onBrightness: (Float) -> Unit,
+    enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    if (!enabled) {
+        content()
+        return
+    }
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -92,10 +97,12 @@ fun PlayerGestureOverlay(
                 ) {
                     var lastTapAt = 0L
                     var taps = 0
+                    var tapSide = 1
                     var startX = 0f
                     var startY = 0f
                     var dragging = false
-                    var dragAction = GestureSide.OFF
+                    var dragAction: DragAction? = null
+                    var sequenceBasePosition = 0L
                     var currentFraction = 0.5f
 
                     awaitPointerEventScope {
@@ -107,7 +114,7 @@ fun PlayerGestureOverlay(
                                     startX = change.position.x
                                     startY = change.position.y
                                     dragging = false
-                                    dragAction = GestureSide.OFF
+                                    dragAction = null
                                 }
 
                                 PointerEventType.Move -> {
@@ -117,20 +124,23 @@ fun PlayerGestureOverlay(
                                     if (abs(dy) < 40f || abs(dy) < abs(dx)) continue
                                     if (startY < 40f || size.height - startY < 40f) continue
                                     val half = GestureMath.classifyHalf(startX.toInt(), size.width)
-                                    val volumeSide = settings.volumeGestureSide
-                                    val brightnessSide = settings.brightnessGestureSide
+                                    val (volumeSide, brightnessSide) =
+                                        GestureMath.resolveSides(
+                                            settings.volumeGestureSide,
+                                            settings.brightnessGestureSide,
+                                        )
                                     dragAction =
-                                        when {
-                                            half == 0 && brightnessSide == GestureSide.LEFT && settings.gestureBrightness ->
-                                                GestureSide.LEFT
-                                            half == 1 && volumeSide == GestureSide.RIGHT && settings.gestureVolume ->
-                                                GestureSide.RIGHT
-                                            else -> GestureSide.OFF
-                                        }
-                                    if (dragAction == GestureSide.OFF) continue
+                                        GestureMath.dragAction(
+                                            half,
+                                            volumeSide,
+                                            brightnessSide,
+                                            settings.gestureVolume,
+                                            settings.gestureBrightness,
+                                        )
+                                    if (dragAction == null) continue
                                     dragging = true
                                     currentFraction =
-                                        if (dragAction == GestureSide.RIGHT) {
+                                        if (dragAction == DragAction.VOLUME) {
                                             val max = audioManager.getStreamMaxVolume(C.STREAM_TYPE_MUSIC)
                                             audioManager.getStreamVolume(C.STREAM_TYPE_MUSIC).toFloat() /
                                                 max.coerceAtLeast(1)
@@ -146,11 +156,11 @@ fun PlayerGestureOverlay(
                                         val dy = (change.position.y - startY).toInt()
                                         val next =
                                             GestureMath.dragFraction(dy, size.height, currentFraction)
-                                        if (dragAction == GestureSide.RIGHT) {
+                                        if (dragAction == DragAction.VOLUME) {
                                             val max = audioManager.getStreamMaxVolume(C.STREAM_TYPE_MUSIC)
                                             audioManager.setStreamVolume(
                                                 C.STREAM_TYPE_MUSIC,
-                                                (next * max).toInt(),
+                                                kotlin.math.round(next * max).toInt(),
                                                 0,
                                             )
                                         } else {
@@ -161,7 +171,7 @@ fun PlayerGestureOverlay(
                                                 onBrightness(next)
                                             }
                                         }
-                                        indicator = (dragAction == GestureSide.RIGHT) to next
+                                        indicator = (dragAction == DragAction.VOLUME) to next
                                         dragging = false
                                         continue
                                     }
@@ -169,23 +179,30 @@ fun PlayerGestureOverlay(
                                     val now = System.currentTimeMillis()
                                     val side =
                                         GestureMath.classifyThird(startX.toInt(), size.width)
-                                    taps = if (now - lastTapAt <= 550L) taps + 1 else 1
+                                    val continuing = now - lastTapAt <= 550L && side != 1
+                                    if (!continuing || taps == 0 || tapSide != side) {
+                                        taps = 1
+                                        sequenceBasePosition = player.currentPosition
+                                    } else {
+                                        taps += 1
+                                    }
+                                    tapSide = side
                                     lastTapAt = now
                                     if (isShorts && taps == 1) {
                                         if (player.isPlaying) player.pause() else player.play()
                                     }
                                     if (taps >= 2 && side != 1) {
-                                        val delta =
-                                            GestureMath.seekDelta(taps, side, settings.doubleTapSeekSeconds)
-                                        if (delta != 0L) {
-                                            val target =
-                                                (player.currentPosition + delta).coerceIn(
-                                                    0L,
-                                                    player.duration.coerceAtLeast(0L),
-                                                )
-                                            player.seekTo(target)
-                                            seekFeedback = (delta / 1000L).toInt()
-                                        }
+                                        val target =
+                                            GestureMath.seekTarget(
+                                                sequenceBasePosition,
+                                                taps,
+                                                side,
+                                                settings.doubleTapSeekSeconds,
+                                                player.duration,
+                                            )
+                                        player.seekTo(target)
+                                        seekFeedback =
+                                            ((target - sequenceBasePosition) / 1000L).toInt()
                                     }
                                 }
 

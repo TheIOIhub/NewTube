@@ -64,9 +64,15 @@ class WatchViewModel @Inject constructor(
                     runCatching { settingsRepository.settings.first().defaultQuality }
                         .getOrDefault(AppSettings.DEFAULT_QUALITY)
                 val details = repository.getVideoDetails(videoId, maxHeight)
-                val position = playbackPositions.positionFor(videoId)
-                val autoplay = runCatching { settingsRepository.settings.first().autoplayNext }.getOrDefault(true)
-                val next = if (autoplay) details.related.firstOrNull() else null
+                val prefs = runCatching { settingsRepository.settings.first() }.getOrDefault(AppSettings())
+                val position = if (prefs.resumePlayback) playbackPositions.positionFor(videoId) else 0L
+                val autoplay = prefs.autoplayNext
+                val next =
+                    if (autoplay) {
+                        details.related.firstOrNull { it.id != videoId }
+                    } else {
+                        null
+                    }
                 _uiState.value = UiState.Success(WatchUiState(details, position, next))
                 runCatching {
                     if (settingsRepository.settings.first().recordHistory) {

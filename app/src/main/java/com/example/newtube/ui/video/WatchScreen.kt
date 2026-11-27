@@ -84,7 +84,7 @@ fun WatchScreen(
                     viewModel::setResizeMode,
                     viewModel::setVideoBrightness,
                     {
-                        watch.details.related.firstOrNull()?.id?.let { nextId ->
+                        watch.nextVideo?.id?.let { nextId ->
                             viewModel.onPlaybackEnded { navController.navigate("watch/$nextId") }
                         }
                     },
@@ -124,6 +124,7 @@ private fun WatchContent(
             onSavePosition = onSavePosition,
             resizeMode = settings.resizeMode,
             preferredAudioLanguage = settings.preferredAudioLanguage,
+            preferOriginalAudio = settings.preferOriginalAudio,
             onResizeModeChange = onResizeModeChange,
             doubleTapSeekSeconds = settings.doubleTapSeekSeconds,
             gestureVolume = settings.gestureVolume,
