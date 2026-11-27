@@ -3,6 +3,7 @@ package com.example.newtube.di
 import android.content.Context
 import androidx.room.Room
 import com.example.newtube.database.ChannelDao
+import com.example.newtube.database.FeedCacheDao
 import com.example.newtube.database.NewTubeDatabase
 import com.example.newtube.database.ShortsFeedDao
 import com.example.newtube.database.VideoDao
@@ -28,6 +29,7 @@ object DatabaseModule {
                 NewTubeDatabase.MIGRATION_1_2,
                 NewTubeDatabase.MIGRATION_2_3,
                 NewTubeDatabase.MIGRATION_3_4,
+                NewTubeDatabase.MIGRATION_4_5,
             )
             .build()
 
@@ -42,4 +44,7 @@ object DatabaseModule {
 
     @Provides
     fun provideShortsFeedDao(db: NewTubeDatabase): ShortsFeedDao = db.shortsFeedDao()
+
+    @Provides
+    fun provideFeedCacheDao(db: NewTubeDatabase): FeedCacheDao = db.feedCacheDao()
 }

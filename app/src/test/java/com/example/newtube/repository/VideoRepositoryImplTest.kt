@@ -4,6 +4,7 @@ import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.ChannelEntity
 import com.example.newtube.database.VideoDao
 import com.example.newtube.database.VideoEntity
+import com.example.newtube.implementation.FeedCacheRepository
 import com.example.newtube.implementation.VideoRepositoryImpl
 import com.example.newtube.innertube.YouTubeContentClient
 import com.example.newtube.model.AccountState
@@ -14,8 +15,10 @@ import com.example.newtube.model.WatchHistoryEntry
 import io.mockk.coEvery
 import io.mockk.coJustRun
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -33,6 +36,7 @@ class VideoRepositoryImplTest {
     private val settingsRepository: SettingsRepository = mockk(relaxed = true)
     private val historyRepository: HistoryRepository = mockk(relaxed = true)
     private val accountRepository: AccountRepository = mockk(relaxed = true)
+    private val feedCache: FeedCacheRepository = mockk(relaxed = true)
     private val settingsFlow = MutableStateFlow(AppSettings())
 
     @Before
@@ -46,6 +50,7 @@ class VideoRepositoryImplTest {
                 settingsRepository,
                 historyRepository,
                 accountRepository,
+                feedCache,
             )
         settingsFlow.value = AppSettings()
         coEvery { settingsRepository.settings } returns settingsFlow
@@ -139,6 +144,52 @@ class VideoRepositoryImplTest {
 
             coVerify { shortsCache.clearFeedCache() }
             coVerify { shortsCache.clearKnownChannelIds() }
+            coVerify { feedCache.clearAll() }
+        }
+
+    @Test
+    fun `observeFeed parses cached JSON and emits empty when absent`() =
+        runBlocking {
+            val json = feedJson(FeedItem("cached"))
+            every { feedCache.observe("home:ALL") } returns flowOf(json)
+            every { feedCache.observe("shorts") } returns flowOf(null)
+
+            assertEquals(listOf("cached"), repository.observeFeed(FeedKey.Home(HomeCategory.ALL)).first().map { it.id })
+            assertTrue(repository.observeFeed(FeedKey.Shorts).first().isEmpty())
+        }
+
+    @Test
+    fun `refreshFeed stores the raw response and returns parsed videos`() =
+        runBlocking {
+            val json = feedJson(FeedItem("fresh"))
+            coEvery { contentClient.browse("FEtrending", null) } returns json
+            coJustRun { feedCache.put(any(), any()) }
+
+            val result = repository.refreshFeed(FeedKey.Home(HomeCategory.ALL))
+
+            assertEquals(listOf("fresh"), result.getOrThrow().map { it.id })
+            coVerify { feedCache.put("home:ALL", json) }
+        }
+
+    @Test
+    fun `refreshFeed with no search continuation keeps the cached page`() =
+        runBlocking {
+            coEvery { contentClient.search("q", null, null) } returns feedJson(FeedItem("page1"))
+
+            repository.refreshFeed(FeedKey.Search("q", 1))
+            assertTrue(repository.refreshFeed(FeedKey.Search("q", 2)).getOrThrow().isEmpty())
+
+            coVerify(exactly = 1) { feedCache.put("search:q:1", any()) }
+            coVerify(exactly = 0) { feedCache.put("search:q:2", any()) }
+        }
+
+    @Test
+    fun `refreshFeed failure keeps the cached feed untouched`() =
+        runBlocking {
+            coEvery { contentClient.browse("FEshorts", null) } throws IOException("offline")
+
+            assertTrue(repository.refreshFeed(FeedKey.Shorts).isFailure)
+            coVerify(exactly = 0) { feedCache.put(any(), any()) }
         }
 
     @Test

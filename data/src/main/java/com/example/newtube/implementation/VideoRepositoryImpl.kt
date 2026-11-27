@@ -19,13 +19,17 @@ import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
 import com.example.newtube.repository.AccountRepository
+import com.example.newtube.repository.FeedKey
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.ShortsCacheRepository
 import com.example.newtube.repository.VideoRepository
 import com.example.newtube.usecase.rankFeed
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -45,6 +49,7 @@ class VideoRepositoryImpl @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val historyRepository: HistoryRepository,
     private val accountRepository: AccountRepository,
+    private val feedCache: FeedCacheRepository,
 ) : VideoRepository {
     /** YouTube's own browse token for the next Shorts page. */
     @Volatile
@@ -64,7 +69,45 @@ class VideoRepositoryImpl @Inject constructor(
         searchContinuation = null
         shortsCache.clearKnownChannelIds()
         shortsCache.clearFeedCache()
+        feedCache.clearAll()
     }
+
+    /** Cached JSON is parsed on every emission so the UI sees stale data first. */
+    override fun observeFeed(key: FeedKey): Flow<List<Video>> =
+        feedCache
+            .observe(key.cacheKey())
+            .map { json ->
+                json?.let { ContentParser.parseFeed(it).items } ?: emptyList()
+            }
+            .flowOn(Dispatchers.Default)
+
+    /** A failed refresh never overwrites the working cached feed. */
+    override suspend fun refreshFeed(key: FeedKey): Result<List<Video>> =
+        runCatching {
+            val json = withContext(Dispatchers.IO) { key.fetchJson() }
+            // An exhausted search page has no response to cache; keep the old page.
+            if (json.isNotBlank()) feedCache.put(key.cacheKey(), json)
+            ContentParser.parseFeed(json).items
+        }
+
+    private fun FeedKey.cacheKey(): String =
+        when (this) {
+            is FeedKey.Home -> "home:${category.name}"
+            FeedKey.Shorts -> "shorts"
+            is FeedKey.Search -> "search:$query:$page"
+            is FeedKey.Channel -> "channel:$channelId"
+            FeedKey.Notifications -> "notifications"
+        }
+
+    /** Every branch is one InnerTube response, kept verbatim for the cache. */
+    private suspend fun FeedKey.fetchJson(): String =
+        when (this) {
+            is FeedKey.Home -> contentClient.browse(category.browseId())
+            FeedKey.Shorts -> contentClient.browse(BROWSE_SHORTS)
+            is FeedKey.Search -> searchJson(query, page)
+            is FeedKey.Channel -> contentClient.browse(channelId)
+            FeedKey.Notifications -> contentClient.browse(BROWSE_NOTIFICATIONS)
+        }
 
     override suspend fun getTrending(): List<Video> =
         withContext(Dispatchers.IO) {
@@ -156,22 +199,30 @@ class VideoRepositoryImpl @Inject constructor(
         page: Int,
     ): List<Video> =
         withContext(Dispatchers.IO) {
-            if (page > 1 && query != searchQuery) return@withContext emptyList()
-            val continuation =
-                if (page <= 1) {
-                    searchQuery = query
-                    searchContinuation = null
-                    null
-                } else {
-                    searchContinuation
-                }
-            if (page > 1 && continuation == null) return@withContext emptyList()
-
-            val feed = ContentParser.parseFeed(contentClient.search(query, null, continuation))
-            searchQuery = query
-            searchContinuation = feed.continuation?.takeIf { it.isNotBlank() }
-            feed.items.toFilteredVideos().take(HOME_FEED_LIMIT)
+            searchJson(query, page).toFilteredVideos().take(HOME_FEED_LIMIT)
         }
+
+    /** Shared by search() and refreshFeed() so both use the same page cursor. */
+    private suspend fun searchJson(
+        query: String,
+        page: Int,
+    ): String {
+        if (page > 1 && query != searchQuery) return ""
+        val continuation =
+            if (page <= 1) {
+                searchQuery = query
+                searchContinuation = null
+                null
+            } else {
+                searchContinuation
+            }
+        if (page > 1 && continuation == null) return ""
+
+        val response = contentClient.search(query, null, continuation)
+        searchQuery = query
+        searchContinuation = ContentParser.parseFeed(response).continuation?.takeIf { it.isNotBlank() }
+        return response
+    }
 
     override suspend fun searchSuggestions(query: String): List<String> =
         withContext(Dispatchers.IO) {
@@ -390,6 +441,7 @@ class VideoRepositoryImpl @Inject constructor(
     private companion object {
         const val BROWSE_TRENDING = "FEtrending"
         const val BROWSE_SHORTS = "FEshorts"
+        const val BROWSE_NOTIFICATIONS = "FEnotifications"
         const val HOME_FEED_LIMIT = 60
         const val HISTORY_SIGNAL_LIMIT = 500
         const val DAY_MS = 86_400_000L

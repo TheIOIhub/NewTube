@@ -2,6 +2,8 @@ package com.example.newtube.di
 
 import com.example.newtube.database.ChannelDao
 import com.example.newtube.database.VideoDao
+import com.example.newtube.implementation.FeedCacheRepository
+import com.example.newtube.implementation.FeedCacheRepositoryImpl
 import com.example.newtube.implementation.ShortsCacheRepositoryImpl
 import com.example.newtube.implementation.VideoRepositoryImpl
 import com.example.newtube.innertube.YouTubeContentClient
@@ -21,6 +23,10 @@ abstract class RepositoryModule {
     @Singleton
     abstract fun bindShortsCacheRepository(impl: ShortsCacheRepositoryImpl): ShortsCacheRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindFeedCacheRepository(impl: FeedCacheRepositoryImpl): FeedCacheRepository
+
     companion object {
         @Provides
         @Singleton
@@ -32,6 +38,7 @@ abstract class RepositoryModule {
             settingsRepository: com.example.newtube.repository.SettingsRepository,
             historyRepository: com.example.newtube.repository.HistoryRepository,
             accountRepository: com.example.newtube.repository.AccountRepository,
+            feedCache: FeedCacheRepository,
         ): VideoRepository =
             VideoRepositoryImpl(
                 contentClient,
@@ -41,6 +48,7 @@ abstract class RepositoryModule {
                 settingsRepository,
                 historyRepository,
                 accountRepository,
+                feedCache,
             )
     }
 }
