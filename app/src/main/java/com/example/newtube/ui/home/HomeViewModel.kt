@@ -86,7 +86,7 @@ class HomeViewModel @Inject constructor(
         shelfJob =
             viewModelScope.launch {
                 _shortsShelf.value =
-                    runCatching { repository.getShortsShelf() }.getOrDefault(emptyList())
+                    runCatching { repository.getShortsShelf().shuffled() }.getOrDefault(emptyList())
             }
     }
 

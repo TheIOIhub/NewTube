@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilterChip
@@ -55,6 +56,13 @@ fun HomeScreen(
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val shelf by viewModel.shortsShelf.collectAsState()
     val listState = rememberLazyListState()
+    val openShort: (String) -> Unit = { videoId ->
+        navController.navigate("shorts?videoId=$videoId") {
+            popUpTo(navController.graph.startDestinationId) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     LaunchedEffect(selectedCategory) {
         listState.scrollToItem(0)
@@ -80,16 +88,7 @@ fun HomeScreen(
             }
             if (shelf.isNotEmpty()) {
                 item(key = "shorts-shelf") {
-                    ShortsShelf(
-                        videos = shelf,
-                        onOpen = { videoId ->
-                            navController.navigate("shorts?videoId=$videoId") {
-                                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                    )
+                    ShortsShelf(videos = shelf, onOpen = openShort)
                 }
             }
             when (val state = uiState) {
@@ -104,13 +103,22 @@ fun HomeScreen(
                             HomeMessage(message = stringResource(R.string.home_empty))
                         }
                     } else {
-                        items(state.data, key = { it.id }) { video ->
+                        val insertionPoints = shortsInsertionIndexes(state.data.size).toSet()
+                        itemsIndexed(state.data, key = { _, video -> video.id }) { index, video ->
                             VideoCard(
                                 video = video,
                                 onClick = { navController.navigate("watch/$it") },
                                 onChannelClick = { navController.navigate("channel/$it") },
                                 showMetadata = rememberShowMetadata(),
                             )
+                            val position = index + 1
+                            if (position in insertionPoints && shelf.isNotEmpty()) {
+                                val block = position / SHORTS_SHELF_EVERY
+                                ShortsShelf(
+                                    videos = shortsWindow(shelf, block, SHORTS_SHELF_SIZE),
+                                    onOpen = openShort,
+                                )
+                            }
                         }
                     }
             }
