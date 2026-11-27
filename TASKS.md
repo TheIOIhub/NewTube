@@ -115,7 +115,7 @@ Executed from [`docs/superpowers/plans/2026-11-26-video-shorts-performance.md`](
 - [x] ✅ Home Shorts shelf's separate `#shorts` search explicitly out of scope (landscape results would pollute the vertical feed cache).
 - [x] ✅ **Phase 1 device QA (P7WKDESW5PKZONVK)**: repeat entry showed the feed immediately with zero discovery requests; ~4 swipes produced one `Preparing` log per landed clip, no playback errors/ANR.
 - [x] ✅ **Phase 2 device QA (Media3 preload + 15-swipe stress)**: 15 consecutive swipes, 0 playback errors/crashes, ~4 MB PSS growth. **Merged-audio audibility was NOT separately verified by ear**; only that both Merged URLs (video + audio) are registered for preload.
-- [x] ✅ Full verification: `./gradlew.bat test ktlintCheck assembleDebug --no-daemon` — ktlint clean; debug APK built; **390 JVM + 5 instrumented** tests, 0 failures. AND `./gradlew.bat :data:connectedAndroidTest --no-daemon` — **5/5 instrumented PASS** on device.
+- [x] ✅ Full verification: `./gradlew.bat test ktlintCheck assembleDebug --no-daemon` — ktlint clean; debug APK built; **399 JVM у debug (408 разом із release) + 5 instrumented** tests, 0 failures. AND `./gradlew.bat :data:connectedAndroidTest --no-daemon` — **5/5 instrumented PASS** on device.
 
 > All tasks will be tracked in this markdown and updated as they complete.
 
