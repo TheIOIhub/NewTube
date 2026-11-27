@@ -1,0 +1,58 @@
+{
+  "contents": {
+    "twoColumnWatchNextResults": {
+      "conversationResults": {
+        "conversation": {
+          "header": {
+            "commentSectionHeaderRenderer": {
+              "commentCount": { "simpleText": "1,234 Comments" }
+            }
+          },
+          "contents": [
+            {
+              "commentRenderer": {
+                "commentId": "comment-1",
+                "authorText": { "simpleText": "Alice" },
+                "authorThumbnail": {
+                  "thumbnails": [
+                    { "url": "https://example.invalid/avatar/alice.jpg", "width": 48 }
+                  ]
+                },
+                "authorEndpoint": {
+                  "browseEndpoint": { "browseId": "UCfixture000000000000006" }
+                },
+                "contentText": { "runs": [{ "text": "First " }, { "text": "comment" }] },
+                "likeCountText": { "simpleText": "1.2K" },
+                "publishedTimeText": { "runs": [{ "text": "2 days ago" }] },
+                "isPinned": true
+              }
+            },
+            {
+              "commentRenderer": {
+                "commentId": "comment-2",
+                "authorText": { "simpleText": "Bob" },
+                "authorThumbnail": {
+                  "thumbnails": [
+                    { "url": "https://example.invalid/avatar/bob.jpg", "width": 48 }
+                  ]
+                },
+                "authorEndpoint": {
+                  "browseEndpoint": { "browseId": "UCfixture000000000000007" }
+                },
+                "contentText": { "simpleText": "Second comment" },
+                "likeCountText": { "simpleText": "37 likes" },
+                "publishedTimeText": { "simpleText": "1 day ago" },
+                "isPinned": false
+              }
+            },
+            {
+              "continuationItemRenderer": {
+                "continuationCommand": { "token": "COMMENTS_CONTINUATION_TOKEN" }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

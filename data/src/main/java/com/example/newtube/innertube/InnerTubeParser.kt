@@ -71,10 +71,10 @@ object InnerTubeParser {
         } * 1000
     }
 
-    private fun parse(text: String): JsonElement? =
+    internal fun parse(text: String): JsonElement? =
         runCatching { json.parseToJsonElement(text.removePrefix("\uFEFF")) }.getOrNull()
 
-    private fun walk(
+    internal fun walk(
         element: JsonElement,
         visit: (JsonObject) -> Unit,
     ) {
@@ -222,7 +222,7 @@ object InnerTubeParser {
         return live
     }
 
-    private fun JsonElement.text(): String? =
+    internal fun JsonElement.text(): String? =
         when (this) {
             is JsonPrimitive -> contentOrNull
             is JsonObject ->
@@ -241,7 +241,7 @@ object InnerTubeParser {
 
     private fun JsonObject.boolean(key: String): Boolean? = (this[key] as? JsonPrimitive)?.booleanOrNull
 
-    private fun JsonObject.path(vararg keys: String): JsonElement? {
+    internal fun JsonObject.path(vararg keys: String): JsonElement? {
         var current: JsonElement = this
         for (key in keys) {
             current = (current as? JsonObject)?.get(key) ?: return null
@@ -249,7 +249,7 @@ object InnerTubeParser {
         return current
     }
 
-    private fun JsonArray.largestThumbnail(): String? =
+    internal fun JsonArray.largestThumbnail(): String? =
         filterIsInstance<JsonObject>()
             .maxByOrNull { (it["width"] as? JsonPrimitive)?.intOrNull ?: 0 }
             ?.string("url")
