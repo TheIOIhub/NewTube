@@ -30,21 +30,34 @@ class NotificationsViewModel
         private val mutableState = MutableStateFlow(NotificationsUiState())
         val uiState: StateFlow<NotificationsUiState> = mutableState.asStateFlow()
 
+        private val mutableRefreshing = MutableStateFlow(false)
+        val isRefreshing: StateFlow<Boolean> = mutableRefreshing.asStateFlow()
+
         fun load() {
             if (mutableState.value.loading) return
             if (accountRepository.state.value is AccountState.SignedOut) {
                 mutableState.value = NotificationsUiState(signedOut = true)
+                mutableRefreshing.value = false
                 return
             }
-            mutableState.value = NotificationsUiState(loading = true)
+            // Keep any already-loaded notifications on screen during a retry.
+            val previous = mutableState.value
+            mutableState.value = previous.copy(loading = true, error = false)
+            mutableRefreshing.value = true
             viewModelScope.launch {
-                mutableState.value =
-                    when (val result = accountRepository.notifications()) {
-                        is AccountResult.Success -> NotificationsUiState(items = result.data)
-                        AccountResult.NeedsSignIn -> NotificationsUiState(signedOut = true)
-                        AccountResult.Network, AccountResult.Server -> NotificationsUiState(error = true)
-                        AccountResult.ParseEmpty -> NotificationsUiState()
-                    }
+                try {
+                    mutableState.value =
+                        when (val result = accountRepository.notifications()) {
+                            is AccountResult.Success -> NotificationsUiState(items = result.data)
+                            AccountResult.NeedsSignIn -> NotificationsUiState(signedOut = true)
+                            AccountResult.Network, AccountResult.Server ->
+                                previous.copy(loading = false, error = true)
+                            AccountResult.ParseEmpty -> NotificationsUiState()
+                        }
+                } finally {
+                    mutableRefreshing.value = false
+                    mutableState.value = mutableState.value.copy(loading = false)
+                }
             }
         }
 

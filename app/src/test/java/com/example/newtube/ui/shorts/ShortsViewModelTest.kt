@@ -4,6 +4,7 @@ import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
 import com.example.newtube.model.VideoDetails
+import com.example.newtube.repository.FeedKey
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.ShortsCacheRepository
@@ -46,6 +47,7 @@ class ShortsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         every { settings.settings } returns flowOf(AppSettings())
         every { shortsCache.observeFeed() } returns flowOf(emptyList())
+        every { repository.observeFeed(any()) } returns flowOf(emptyList())
         coJustRun { history.record(any()) }
     }
 
@@ -93,6 +95,23 @@ class ShortsViewModelTest {
 
             assertEquals(UiState.Success(listOf(cached)), viewModel.uiState.value)
             assertTrue(viewModel.isRefreshing.value)
+
+            firstPage.complete(emptyList())
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+
+    @Test
+    fun `generic cached feed is used when the shorts cache is empty`() =
+        runTest {
+            val cached = video("generic")
+            val firstPage = CompletableDeferred<List<Video>>()
+            every { repository.observeFeed(FeedKey.Shorts) } returns flowOf(listOf(cached))
+            coEvery { repository.getShorts(1) } coAnswers { firstPage.await() }
+
+            val viewModel = ShortsViewModel(repository, settings, history, shortsCache)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(UiState.Success(listOf(cached)), viewModel.uiState.value)
 
             firstPage.complete(emptyList())
             testDispatcher.scheduler.advanceUntilIdle()

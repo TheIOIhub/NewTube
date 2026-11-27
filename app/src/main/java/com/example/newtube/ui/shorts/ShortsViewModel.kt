@@ -10,6 +10,7 @@ import androidx.paging.cachedIn
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.PlaybackSource
 import com.example.newtube.model.Video
+import com.example.newtube.repository.FeedKey
 import com.example.newtube.repository.HistoryRepository
 import com.example.newtube.repository.SettingsRepository
 import com.example.newtube.repository.ShortsCacheRepository
@@ -204,6 +205,11 @@ class ShortsViewModel @Inject constructor(
             var cached = emptyList<Video>()
             try {
                 cached = shortsCache.observeFeed().first()
+                if (cached.isEmpty()) {
+                    // The generic Room feed can outlive the Shorts-specific cache
+                    // (e.g. a partially cleared cache), so show it immediately too.
+                    cached = repository.observeFeed(FeedKey.Shorts).first()
+                }
                 _uiState.value =
                     if (cached.isNotEmpty()) UiState.Success(cached) else UiState.Loading
                 val collected = mutableListOf<Video>()

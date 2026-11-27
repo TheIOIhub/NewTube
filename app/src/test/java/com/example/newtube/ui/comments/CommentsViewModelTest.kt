@@ -14,9 +14,11 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CommentsViewModelTest {
@@ -50,6 +52,26 @@ class CommentsViewModelTest {
             assertEquals(listOf(comment), data.comments)
             assertEquals(10L, data.totalCount)
             assertTrue(data.hasMore)
+            assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `a failed retry keeps the loaded comments`() =
+        runTest {
+            val comment = comment("c1")
+            coEvery { repository.getComments("v1", null) } returns
+                CommentPage(listOf(comment), continuation = null, totalCount = 1)
+
+            val viewModel = CommentsViewModel(repository)
+            viewModel.load("v1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coEvery { repository.getComments("v1", null) } throws IOException("offline")
+            viewModel.retry()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf(comment), (viewModel.uiState.value as UiState.Success).data.comments)
+            assertFalse(viewModel.isRefreshing.value)
         }
 
     @Test

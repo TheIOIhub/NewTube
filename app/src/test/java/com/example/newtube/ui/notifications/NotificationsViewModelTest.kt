@@ -58,7 +58,25 @@ class NotificationsViewModelTest {
             vm.load()
             advanceUntilIdle()
             assertEquals(1, vm.uiState.value.items.size)
+            assertFalse(vm.isRefreshing.value)
             coVerify(exactly = 1) { account.notifications() }
+        }
+
+    @Test
+    fun `a failed retry keeps the loaded notifications`() =
+        runTest {
+            every { account.state } returns MutableStateFlow(signedIn)
+            coEvery { account.notifications() } returns AccountResult.Success(listOf(item))
+            vm.load()
+            advanceUntilIdle()
+
+            coEvery { account.notifications() } returns AccountResult.Network
+            vm.retry()
+            advanceUntilIdle()
+
+            assertEquals(listOf(item), vm.uiState.value.items)
+            assertTrue(vm.uiState.value.error)
+            assertFalse(vm.isRefreshing.value)
         }
 
     @Test
