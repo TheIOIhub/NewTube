@@ -37,6 +37,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -55,18 +56,13 @@ class VideoRepositoryImpl @Inject constructor(
     @Volatile
     private var shortsContinuation: String? = null
 
-    /** Search continuation is only valid for the query that produced it. */
-    @Volatile
-    private var searchQuery: String? = null
-
-    @Volatile
-    private var searchContinuation: String? = null
+    /** Search continuations are per query: another query must not steal the token. */
+    private val searchContinuations = ConcurrentHashMap<String, String>()
 
     /** Called when the user changes content preferences so cursors do not stay stale. */
     override suspend fun clearFeedCaches() {
         shortsContinuation = null
-        searchQuery = null
-        searchContinuation = null
+        searchContinuations.clear()
         shortsCache.clearKnownChannelIds()
         shortsCache.clearFeedCache()
         feedCache.clearAll()
@@ -85,13 +81,15 @@ class VideoRepositoryImpl @Inject constructor(
             }
             .flowOn(Dispatchers.Default)
 
-    /** A failed refresh never overwrites the working cached feed. */
+    /** A failed or unusable refresh never overwrites the working cached feed. */
     override suspend fun refreshFeed(key: FeedKey): Result<List<Video>> =
         runCatching {
             val json = withContext(Dispatchers.IO) { key.fetchJson() }
-            // An exhausted search page has no response to cache; keep the old page.
-            if (json.isNotBlank()) feedCache.put(key.cacheKey(), json)
-            ContentParser.parseFeed(json).items.forFeedKey(key)
+            val items = ContentParser.parseFeed(json).items.forFeedKey(key)
+            // Only a usable parsed feed may replace the cached page: a nonblank
+            // bot-check page or an exhausted search token must keep the old feed.
+            if (items.isNotEmpty()) feedCache.put(key.cacheKey(), json)
+            items
         }
 
     /**
@@ -233,20 +231,21 @@ class VideoRepositoryImpl @Inject constructor(
         query: String,
         page: Int,
     ): String {
-        if (page > 1 && query != searchQuery) return ""
         val continuation =
             if (page <= 1) {
-                searchQuery = query
-                searchContinuation = null
+                // A fresh page 1 invalidates only this query's cursor.
+                searchContinuations.remove(query)
                 null
             } else {
-                searchContinuation
+                searchContinuations[query] ?: return ""
             }
-        if (page > 1 && continuation == null) return ""
-
         val response = contentClient.search(query, null, continuation)
-        searchQuery = query
-        searchContinuation = ContentParser.parseFeed(response).continuation?.takeIf { it.isNotBlank() }
+        val next = ContentParser.parseFeed(response).continuation?.takeIf { it.isNotBlank() }
+        if (next != null) {
+            searchContinuations[query] = next
+        } else {
+            searchContinuations.remove(query)
+        }
         return response
     }
 

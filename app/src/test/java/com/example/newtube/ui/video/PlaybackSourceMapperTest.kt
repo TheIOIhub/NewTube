@@ -83,6 +83,26 @@ class PlaybackSourceMapperTest {
     }
 
     @Test
+    fun `merged source deduplicates repeated audio urls`() {
+        val source =
+            PlaybackSource.Merged(
+                videoUrl = "https://x/video.mp4",
+                audioUrl = "https://x/audio-uk.mp4",
+                audioAlternatives =
+                    listOf("https://x/audio-uk.mp4", "https://x/audio-en.mp4", "https://x/audio-en.mp4"),
+            )
+        stubUris()
+
+        val result =
+            source.toMediaSource(mockk<Context>(relaxed = true), mockk<DataSource.Factory>(relaxed = true))
+
+        assertEquals(
+            listOf("https://x/video.mp4", "https://x/audio-uk.mp4", "https://x/audio-en.mp4"),
+            result.childUris(),
+        )
+    }
+
+    @Test
     fun `progressive source produces a progressive media source`() {
         stubUris()
 

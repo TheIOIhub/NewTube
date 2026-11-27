@@ -81,14 +81,17 @@ fun ShortsScreen(
     // The effect is keyed by URLs: refreshing into an equal list does not
     // re-enqueue already-scheduled prefetches.
     val context = LocalContext.current
+    val prefetchIds =
+        (uiState as? UiState.Success)
+            ?.data
+            .orEmpty()
+            .distinctBy { it.id }
+            .map { it.id }
+            .take(ThumbnailUrls.PREFETCH_COUNT)
+    val prefetchKey = prefetchIds.joinToString(",")
     val prefetchUrls =
-        remember(uiState) {
-            (uiState as? UiState.Success)
-                ?.data
-                .orEmpty()
-                .distinctBy { it.id }
-                .take(ThumbnailUrls.PREFETCH_COUNT)
-                .map { ThumbnailUrls.hq(it.id) }
+        remember(prefetchKey) {
+            prefetchIds.map(ThumbnailUrls::hq)
         }
     LaunchedEffect(prefetchUrls) {
         if (prefetchUrls.isNotEmpty()) {

@@ -2,6 +2,7 @@ package com.example.newtube.ui.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.newtube.innertube.ContentSourceUnavailableException
 import com.example.newtube.model.Video
 import com.example.newtube.repository.FeedKey
 import com.example.newtube.repository.SettingsRepository
@@ -36,6 +37,10 @@ class SearchViewModel @Inject constructor(
     private val _isLoadingMore = MutableStateFlow(false)
     val isLoadingMore: StateFlow<Boolean> = _isLoadingMore
 
+    /** True when the source failed but cached results for this query remain. */
+    private val _sourceUnavailable = MutableStateFlow(false)
+    val sourceUnavailable: StateFlow<Boolean> = _sourceUnavailable
+
     private val _suggestions = MutableStateFlow<List<String>>(emptyList())
     val suggestions: StateFlow<List<String>> = _suggestions
 
@@ -67,6 +72,7 @@ class SearchViewModel @Inject constructor(
                 }
                 .collect { (term, cached) ->
                     if (term != null && term == activeQuery.value && cached.isNotEmpty()) {
+                        if (displayedQuery == term) return@collect
                         displayedQuery = term
                         _uiState.value = UiState.Success(cached)
                         reachedEnd = false
@@ -81,6 +87,7 @@ class SearchViewModel @Inject constructor(
         query = trimmed
         val token = ++requestToken
         displayedQuery = null
+        _sourceUnavailable.value = false
         searchJob?.cancel()
         suggestionsJob?.cancel()
         reachedEnd = false
@@ -115,6 +122,7 @@ class SearchViewModel @Inject constructor(
         query = trimmed
         val token = ++requestToken
         displayedQuery = null
+        _sourceUnavailable.value = false
         _uiState.value = UiState.Success(emptyList())
         suggestionsJob?.cancel()
         _suggestions.value = emptyList()
@@ -161,10 +169,14 @@ class SearchViewModel @Inject constructor(
                 nextPage = page + 1
                 if (results.isEmpty()) reachedEnd = true
                 displayedQuery = query
+                _sourceUnavailable.value = false
                 _uiState.value =
                     UiState.Success((current.data + results).distinctBy { it.id })
             } catch (e: Exception) {
                 // Keep the current results, the footer stays so the user can retry.
+                if (token == requestToken && query == activeQuery.value) {
+                    _sourceUnavailable.value = e is ContentSourceUnavailableException
+                }
             } finally {
                 if (token == requestToken) {
                     loading = false
@@ -186,11 +198,13 @@ class SearchViewModel @Inject constructor(
             if (token != requestToken) return
             if (results.isEmpty()) reachedEnd = true
             displayedQuery = query
+            _sourceUnavailable.value = false
             _uiState.value = UiState.Success(results)
         } catch (e: Exception) {
             if (token != requestToken) return
             // Preserve results only when they belong to this query; a failed
             // new query must not inherit the previous query's list.
+            _sourceUnavailable.value = e is ContentSourceUnavailableException
             if (displayedQuery != query) {
                 _uiState.value = UiState.Error(e.toUserMessage())
             }

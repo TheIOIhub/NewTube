@@ -107,6 +107,7 @@
     <string name="section_shorts">Shorts</string>
     <string name="home_empty">Тут поки немає відео</string>
     <string name="retry">Повторити</string>
+    <string name="source_unavailable">Джерело недоступне — показано збережені дані</string>
 
     <string name="watch_comments">Коментарі</string>
     <string name="watch_related">Схожі відео</string>

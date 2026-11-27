@@ -1,5 +1,6 @@
 package com.example.newtube.ui.home
 
+import com.example.newtube.innertube.ContentSourceUnavailableException
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
@@ -112,7 +113,80 @@ class HomeViewModelTest {
             viewModel.selectCategory(HomeCategory.GAMING)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify(exactly = 1) { repository.refreshFeed(FeedKey.Home(HomeCategory.GAMING)) }
+            // Every switch back to a cached chip revalidates that same key.
+            coVerify(exactly = 2) { repository.refreshFeed(FeedKey.Home(HomeCategory.GAMING)) }
+        }
+
+    @Test
+    fun `switching back to a cached category shows it immediately then revalidates`() =
+        runTest {
+            val cached = listOf(video("all-cached"))
+            val refreshed = listOf(video("all-fresh"))
+            every { repository.observeFeed(FeedKey.Home(HomeCategory.ALL)) } returns flowOf(cached)
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) } returnsMany
+                listOf(Result.success(cached), Result.success(refreshed))
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.GAMING)) } returns
+                Result.success(listOf(video("game")))
+
+            val viewModel = HomeViewModel(repository, settingsRepository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(cached), viewModel.uiState.value)
+
+            viewModel.selectCategory(HomeCategory.GAMING)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.selectCategory(HomeCategory.ALL)
+
+            assertEquals(UiState.Success(cached), viewModel.uiState.value)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(refreshed), viewModel.uiState.value)
+            coVerify(exactly = 2) { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) }
+        }
+
+    @Test
+    fun `a late response from a cached category cannot publish under a new chip`() =
+        runTest {
+            val gameFeed = CompletableDeferred<Result<List<Video>>>()
+            every { repository.observeFeed(FeedKey.Home(HomeCategory.GAMING)) } returns
+                flowOf(listOf(video("game-cached")))
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.GAMING)) } coAnswers { gameFeed.await() }
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) } returnsMany
+                listOf(Result.success(listOf(video("all-1"))), Result.success(listOf(video("all-2"))))
+
+            val viewModel = HomeViewModel(repository, settingsRepository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.selectCategory(HomeCategory.GAMING)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("game-cached"))), viewModel.uiState.value)
+
+            viewModel.selectCategory(HomeCategory.ALL)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("all-2"))), viewModel.uiState.value)
+
+            gameFeed.complete(Result.success(listOf(video("stale-game"))))
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("all-2"))), viewModel.uiState.value)
+        }
+
+    @Test
+    fun `a source failure on a cached category raises the banner and a retry clears it`() =
+        runTest {
+            val cached = listOf(video("cached"))
+            every { repository.observeFeed(FeedKey.Home(HomeCategory.ALL)) } returns flowOf(cached)
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) } returnsMany
+                listOf(
+                    Result.failure(ContentSourceUnavailableException("blocked")),
+                    Result.success(listOf(video("fresh"))),
+                )
+
+            val viewModel = HomeViewModel(repository, settingsRepository)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(cached), viewModel.uiState.value)
+            assertTrue(viewModel.sourceUnavailable.value)
+
+            viewModel.refresh()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+            assertFalse(viewModel.sourceUnavailable.value)
         }
 
     @Test
@@ -289,9 +363,9 @@ class HomeViewModelTest {
     fun `a pre-clear cached emission cannot repopulate the feed`() =
         runTest {
             val cachedFeed = MutableStateFlow(listOf(video("stale")))
+            val refresh = CompletableDeferred<Result<List<Video>>>()
             every { repository.observeFeed(FeedKey.Home(HomeCategory.ALL)) } returns cachedFeed
-            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) } returns
-                Result.success(listOf(video("fresh")))
+            coEvery { repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)) } coAnswers { refresh.await() }
             coEvery { repository.clearFeedCaches() } coAnswers { cachedFeed.value = emptyList() }
 
             val viewModel = HomeViewModel(repository, settingsRepository)
@@ -299,6 +373,7 @@ class HomeViewModelTest {
             assertEquals(UiState.Success(listOf(video("stale"))), viewModel.uiState.value)
 
             viewModel.onContentPreferencesChanged()
+            refresh.complete(Result.success(listOf(video("fresh"))))
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)

@@ -41,6 +41,7 @@ import androidx.navigation.NavController
 import com.example.newtube.R
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
+import com.example.newtube.ui.common.InlineBanner
 import com.example.newtube.ui.common.ShortsTile
 import com.example.newtube.ui.common.ThumbnailUrls
 import com.example.newtube.ui.common.UiState
@@ -58,18 +59,23 @@ fun HomeScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val shelf by viewModel.shortsShelf.collectAsState()
+    val sourceUnavailable by viewModel.sourceUnavailable.collectAsState()
     val listState = rememberLazyListState()
     val context = LocalContext.current
 
-    // Key on the URLs, not the UiState instance: repeated emissions of the
+    // Key on the ids, not the UiState instance: repeated emissions of the
     // same feed must not re-enqueue the first cards' prefetches.
+    val prefetchIds =
+        (uiState as? UiState.Success)
+            ?.data
+            .orEmpty()
+            .distinctBy { it.id }
+            .map { it.id }
+            .take(ThumbnailUrls.PREFETCH_COUNT)
+    val prefetchKey = prefetchIds.joinToString(",")
     val prefetchUrls =
-        remember(uiState) {
-            (uiState as? UiState.Success)
-                ?.data
-                .orEmpty()
-                .take(ThumbnailUrls.PREFETCH_COUNT)
-                .map { ThumbnailUrls.hq(it.id) }
+        remember(prefetchKey) {
+            prefetchIds.map(ThumbnailUrls::hq)
         }
     LaunchedEffect(prefetchUrls) {
         if (prefetchUrls.isNotEmpty()) {
@@ -106,6 +112,15 @@ fun HomeScreen(
                     selected = selectedCategory,
                     onSelect = viewModel::selectCategory,
                 )
+            }
+            if (sourceUnavailable && uiState is UiState.Success) {
+                item(key = "source-unavailable") {
+                    InlineBanner(
+                        message = stringResource(R.string.source_unavailable),
+                        action = stringResource(R.string.retry),
+                        onAction = viewModel::refresh,
+                    )
+                }
             }
             if (shelf.isNotEmpty()) {
                 item(key = "shorts-shelf") {

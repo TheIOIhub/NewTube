@@ -1,5 +1,9 @@
 package com.example.newtube.innertube
 
+import com.example.newtube.model.AppSettings
+import com.example.newtube.repository.SettingsRepository
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -126,6 +130,60 @@ class ContentClientChainTest {
             val request = server.takeRequest()
             assertEquals("/youtubei/v1/search/suggestions", request.path)
             assertTrue(body(request).contains(""""query":"test""""))
+        }
+
+    @Test
+    fun settingsLocaleOverridesTheConfiguredClientLocale() =
+        runTest {
+            val settingsFlow = MutableStateFlow(AppSettings(contentLanguage = "en", contentCountry = "US"))
+            val settings = mockk<SettingsRepository>()
+            every { settings.settings } returns settingsFlow
+            val localizedClient =
+                YouTubeContentClient(OkHttpClient(), repository, server.url("/").toString(), settings)
+            server.enqueue(json("""{"contents":{}}"""))
+
+            localizedClient.browse("FEtrending")
+
+            val clientSettings = clientObject(server.takeRequest())
+            assertEquals("en", clientSettings["hl"]!!.jsonPrimitive.content)
+            assertEquals("US", clientSettings["gl"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun aBrowseRejectionAdvancesToTheNextClient() =
+        runTest {
+            server.enqueue(json("""{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}"""))
+            server.enqueue(json("""{"contents":{}}"""))
+
+            client.browse("FEtrending")
+
+            val rejected = server.takeRequest()
+            val accepted = server.takeRequest()
+            assertEquals(2, server.requestCount)
+            assertEquals("ANDROID", clientName(rejected))
+            assertEquals("ANDROID_VR", clientName(accepted))
+            assertEquals("ANDROID_VR", client.lastSuccessfulClient)
+        }
+
+    @Test
+    fun anUnparseableBotCheckPageAdvancesAndExhaustsTheChain() =
+        runTest {
+            repeat(3) {
+                server.enqueue(
+                    MockResponse()
+                        .setResponseCode(200)
+                        .setBody("<!DOCTYPE html><html>Are you a robot?</html>")
+                        .addHeader("Content-Type", "text/html"),
+                )
+            }
+
+            try {
+                client.browse("FEtrending")
+                throw AssertionError("expected ContentSourceUnavailableException")
+            } catch (expected: ContentSourceUnavailableException) {
+                assertEquals(3, server.requestCount)
+                assertNull(client.lastSuccessfulClient)
+            }
         }
 
     @Test

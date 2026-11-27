@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,13 +25,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil.compose.rememberAsyncImagePainter
+import com.example.newtube.R
 import com.example.newtube.model.Channel
 import com.example.newtube.ui.common.ErrorScreen
+import com.example.newtube.ui.common.InlineBanner
 import com.example.newtube.ui.common.LoadingScreen
 import com.example.newtube.ui.common.UiState
 import com.example.newtube.ui.common.VideoCard
@@ -48,17 +52,30 @@ fun ChannelScreen(
     }
 
     val state by viewModel.uiState.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
-    when (val channelState = state.channel) {
-        UiState.Loading -> LoadingScreen()
-        is UiState.Error -> ErrorScreen(channelState.message, onRetry = viewModel::retry)
-        is UiState.Success ->
-            ChannelContent(
-                channel = channelState.data,
-                state = state,
-                navController = navController,
-                onLoadMore = viewModel::loadMore,
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (val channelState = state.channel) {
+            UiState.Loading -> LoadingScreen()
+            is UiState.Error -> ErrorScreen(channelState.message, onRetry = viewModel::retry)
+            is UiState.Success ->
+                ChannelContent(
+                    channel = channelState.data,
+                    state = state,
+                    navController = navController,
+                    onLoadMore = viewModel::loadMore,
+                    onRetry = viewModel::retry,
+                )
+        }
+        if (isRefreshing) {
+            LinearProgressIndicator(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(2.dp),
             )
+        }
     }
 }
 
@@ -68,10 +85,20 @@ private fun ChannelContent(
     state: ChannelUiState,
     navController: NavHostController,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
             ChannelHeader(channel)
+        }
+        if (state.sourceUnavailable) {
+            item(key = "source-unavailable") {
+                InlineBanner(
+                    message = stringResource(R.string.source_unavailable),
+                    action = stringResource(R.string.retry),
+                    onAction = onRetry,
+                )
+            }
         }
         item {
             Text(

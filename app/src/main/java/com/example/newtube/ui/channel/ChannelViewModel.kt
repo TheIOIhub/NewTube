@@ -2,6 +2,7 @@ package com.example.newtube.ui.channel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.newtube.innertube.ContentSourceUnavailableException
 import com.example.newtube.model.Channel
 import com.example.newtube.model.Video
 import com.example.newtube.repository.FeedKey
@@ -23,6 +24,7 @@ data class ChannelUiState(
     val videos: List<Video> = emptyList(),
     val videosError: String? = null,
     val isLoadingMore: Boolean = false,
+    val sourceUnavailable: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -108,11 +110,19 @@ class ChannelViewModel @Inject constructor(
                 // discovered lazily by loadMore() through getChannelVideos().
                 needsContinuation = true
                 if (videos.isEmpty()) reachedEnd = true
-                _uiState.update { it.copy(videos = videos, videosError = null) }
+                _uiState.update {
+                    it.copy(videos = videos, videosError = null, sourceUnavailable = false)
+                }
             } catch (e: Exception) {
                 if (token == requestToken) {
                     // Keep the cached uploads instead of replacing them with an error.
-                    _uiState.update { it.copy(videosError = e.toUserMessage()) }
+                    _uiState.update {
+                        if (e is ContentSourceUnavailableException) {
+                            it.copy(videosError = null, sourceUnavailable = true)
+                        } else {
+                            it.copy(videosError = e.toUserMessage(), sourceUnavailable = false)
+                        }
+                    }
                 }
             } finally {
                 if (token == requestToken) _isRefreshing.value = false

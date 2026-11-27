@@ -1,5 +1,6 @@
 package com.example.newtube.ui.search
 
+import com.example.newtube.innertube.ContentSourceUnavailableException
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.Video
 import com.example.newtube.repository.FeedKey
@@ -210,6 +211,29 @@ class SearchViewModelTest {
 
             assertEquals(UiState.Success(cached), viewModel.uiState.value)
             assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `source failure keeps cached results and raises the banner`() =
+        runTest {
+            val cached = listOf(video("cached"))
+            every { repository.observeFeed(FeedKey.Search("kotlin", 1)) } returns flowOf(cached)
+            coEvery { repository.refreshFeed(FeedKey.Search("kotlin", 1)) } returnsMany
+                listOf(
+                    Result.failure(ContentSourceUnavailableException("blocked")),
+                    Result.success(listOf(video("fresh"))),
+                )
+
+            val viewModel = SearchViewModel(repository, settingsRepository)
+            viewModel.onQueryChange("kotlin")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(cached), viewModel.uiState.value)
+            assertTrue(viewModel.sourceUnavailable.value)
+
+            viewModel.retry()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(UiState.Success(listOf(video("fresh"))), viewModel.uiState.value)
+            assertFalse(viewModel.sourceUnavailable.value)
         }
 
     @Test

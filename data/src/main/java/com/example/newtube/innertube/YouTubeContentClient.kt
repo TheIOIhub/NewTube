@@ -1,12 +1,14 @@
 package com.example.newtube.innertube
 
 import com.example.newtube.account.YouTubeTvUserAgent
+import com.example.newtube.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -28,7 +30,24 @@ class YouTubeContentClient(
     private val client: OkHttpClient,
     private val config: ContentConfigRepository,
     private val baseUrl: String = DEFAULT_BASE_URL,
+    private val settingsRepository: SettingsRepository? = null,
 ) {
+    /** Null fields fall back to the hl/gl of the configured client. */
+    private data class ContentLocale(
+        val hl: String?,
+        val gl: String?,
+    )
+
+    private sealed interface ResponseStatus {
+        data object Ok : ResponseStatus
+
+        data class Rejected(val status: String) : ResponseStatus
+
+        data object Missing : ResponseStatus
+
+        data object Malformed : ResponseStatus
+    }
+
     /** Name of the client that answered the last successful request, for diagnostics. */
     @Volatile
     var lastSuccessfulClient: String? = null
@@ -38,9 +57,9 @@ class YouTubeContentClient(
         browseId: String,
         continuation: String? = null,
     ): String =
-        execute(ContentEndpoints.BROWSE) { contentClient ->
+        execute(ContentEndpoints.BROWSE) { contentClient, locale ->
             buildJsonObject {
-                put("context", context(contentClient))
+                put("context", context(contentClient, locale))
                 if (continuation != null) {
                     put("continuation", continuation)
                 } else {
@@ -54,9 +73,9 @@ class YouTubeContentClient(
         params: String? = null,
         continuation: String? = null,
     ): String =
-        execute(ContentEndpoints.SEARCH) { contentClient ->
+        execute(ContentEndpoints.SEARCH) { contentClient, locale ->
             buildJsonObject {
-                put("context", context(contentClient))
+                put("context", context(contentClient, locale))
                 if (continuation != null) {
                     put("continuation", continuation)
                 } else {
@@ -69,9 +88,9 @@ class YouTubeContentClient(
         }
 
     suspend fun player(videoId: String): String =
-        execute(ContentEndpoints.PLAYER, requireOk = true) { contentClient ->
+        execute(ContentEndpoints.PLAYER, requireOk = true) { contentClient, locale ->
             buildJsonObject {
-                put("context", context(contentClient))
+                put("context", context(contentClient, locale))
                 put("videoId", videoId)
                 put("contentCheckOk", true)
                 put("racyCheckOk", true)
@@ -79,18 +98,18 @@ class YouTubeContentClient(
         }
 
     suspend fun next(continuation: String): String =
-        execute(ContentEndpoints.NEXT) { contentClient ->
+        execute(ContentEndpoints.NEXT) { contentClient, locale ->
             buildJsonObject {
-                put("context", context(contentClient))
+                put("context", context(contentClient, locale))
                 put("continuation", continuation)
             }
         }
 
     suspend fun suggestions(query: String): List<String> {
         val text =
-            execute(ContentEndpoints.SUGGESTIONS) { contentClient ->
+            execute(ContentEndpoints.SUGGESTIONS) { contentClient, locale ->
                 buildJsonObject {
-                    put("context", context(contentClient))
+                    put("context", context(contentClient, locale))
                     put("query", query)
                 }
             }
@@ -109,10 +128,16 @@ class YouTubeContentClient(
     private suspend fun execute(
         endpoint: String,
         requireOk: Boolean = false,
-        body: (ContentClient) -> JsonObject,
+        body: (ContentClient, ContentLocale) -> JsonObject,
     ): String =
         withContext(Dispatchers.IO) {
             val current = config.config.first()
+            val settings = settingsRepository?.settings?.first()
+            val locale =
+                ContentLocale(
+                    hl = settings?.contentLanguage?.takeIf { it.isNotBlank() },
+                    gl = settings?.contentCountry?.takeIf { it.isNotBlank() },
+                )
             val path = current.endpoints[endpoint] ?: endpoint
             val chain =
                 if (endpoint == ContentEndpoints.PLAYER) {
@@ -123,16 +148,31 @@ class YouTubeContentClient(
             var lastFailure: IOException? = null
             for (contentClient in chain) {
                 try {
-                    val response = post(path, body(contentClient), contentClient)
-                    val status = playabilityStatus(response)
-                    if (status == "OK" || (!requireOk && status == null)) {
-                        lastSuccessfulClient = contentClient.name
-                        return@withContext response
+                    val response = post(path, body(contentClient, locale), contentClient)
+                    when (val status = responseStatus(response)) {
+                        ResponseStatus.Ok -> {
+                            lastSuccessfulClient = contentClient.name
+                            return@withContext response
+                        }
+                        is ResponseStatus.Rejected ->
+                            lastFailure =
+                                ContentSourceUnavailableException(
+                                    "$endpoint rejected client ${contentClient.name}: ${status.status}",
+                                )
+                        ResponseStatus.Missing ->
+                            if (!requireOk) {
+                                lastSuccessfulClient = contentClient.name
+                                return@withContext response
+                            } else {
+                                lastFailure =
+                                    ContentSourceUnavailableException(
+                                        "$endpoint returned no playability status",
+                                    )
+                            }
+                        ResponseStatus.Malformed ->
+                            lastFailure =
+                                ContentSourceUnavailableException("$endpoint returned an unparseable response")
                     }
-                    lastFailure =
-                        ContentSourceUnavailableException(
-                            "$endpoint rejected client ${contentClient.name}: ${status ?: "no status"}",
-                        )
                 } catch (failure: IOException) {
                     lastFailure = failure
                 }
@@ -168,31 +208,47 @@ class YouTubeContentClient(
             }
     }
 
-    private fun context(contentClient: ContentClient) =
-        buildJsonObject {
-            put(
-                "client",
-                buildJsonObject {
-                    put("clientName", contentClient.name)
-                    put("clientVersion", contentClient.version)
-                    put("hl", contentClient.hl)
-                    put("gl", contentClient.gl)
-                },
-            )
-        }
+    private fun context(
+        contentClient: ContentClient,
+        locale: ContentLocale,
+    ) = buildJsonObject {
+        put(
+            "client",
+            buildJsonObject {
+                put("clientName", contentClient.name)
+                put("clientVersion", contentClient.version)
+                put("hl", locale.hl ?: contentClient.hl)
+                put("gl", locale.gl ?: contentClient.gl)
+            },
+        )
+    }
 
-    private fun playabilityStatus(response: String): String? =
-        try {
-            Json
-                .parseToJsonElement(response)
-                .jsonObject["playabilityStatus"]
-                ?.jsonObject
-                ?.get("status")
-                ?.jsonPrimitive
-                ?.content
-        } catch (_: Exception) {
-            null
+    /**
+     * A present rejection (or a non-JSON body such as a bot-check page) must
+     * advance the chain. Only a well-formed response without any
+     * playabilityStatus is acceptable for non-player endpoints.
+     */
+    private fun responseStatus(response: String): ResponseStatus {
+        val root =
+            try {
+                Json.parseToJsonElement(response).jsonObject
+            } catch (_: Exception) {
+                return ResponseStatus.Malformed
+            }
+        if (root.isEmpty()) return ResponseStatus.Malformed
+        val status =
+            try {
+                root["playabilityStatus"]?.jsonObject?.get("status")?.jsonPrimitive?.contentOrNull
+            } catch (_: Exception) {
+                return ResponseStatus.Malformed
+            }
+        return when {
+            status == "OK" -> ResponseStatus.Ok
+            status != null -> ResponseStatus.Rejected(status)
+            root.containsKey("playabilityStatus") -> ResponseStatus.Rejected("missing status")
+            else -> ResponseStatus.Missing
         }
+    }
 
     private fun userAgent(contentClient: ContentClient): String =
         if (contentClient.name == "TVHTML5") {

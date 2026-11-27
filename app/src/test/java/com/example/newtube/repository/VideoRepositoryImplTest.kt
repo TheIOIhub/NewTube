@@ -193,6 +193,36 @@ class VideoRepositoryImplTest {
         }
 
     @Test
+    fun `refreshFeed with an unusable response keeps the cached feed untouched`() =
+        runBlocking {
+            coEvery { contentClient.browse("FEtrending", null) } returns "<html>bot check</html>"
+
+            assertTrue(repository.refreshFeed(FeedKey.Home(HomeCategory.ALL)).getOrThrow().isEmpty())
+            coVerify(exactly = 0) { feedCache.put(any(), any()) }
+        }
+
+    @Test
+    fun `search cursors are isolated per query`() =
+        runBlocking {
+            coEvery { contentClient.search("first", null, null) } returns
+                feedJson(FeedItem("a1"), continuation = "first-token")
+            coEvery { contentClient.search("other", null, null) } returns
+                feedJson(FeedItem("b1"), continuation = "other-token")
+            coEvery { contentClient.search("first", null, "first-token") } returns
+                feedJson(FeedItem("a2"))
+            coEvery { contentClient.search("other", null, "other-token") } returns
+                feedJson(FeedItem("b2"))
+
+            assertEquals(listOf("a1"), repository.search("first", 1).map { it.id })
+            assertEquals(listOf("b1"), repository.search("other", 1).map { it.id })
+            assertEquals(listOf("a2"), repository.search("first", 2).map { it.id })
+            assertEquals(listOf("b2"), repository.search("other", 2).map { it.id })
+
+            coVerify { contentClient.search("first", null, "first-token") }
+            coVerify { contentClient.search("other", null, "other-token") }
+        }
+
+    @Test
     fun `getForYouFeed ranks a watched Ukrainian channel first`() =
         runBlocking {
             coEvery { contentClient.browse(any(), any()) } returns forYouJson()

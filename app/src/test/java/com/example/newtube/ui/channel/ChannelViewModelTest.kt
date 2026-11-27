@@ -1,5 +1,6 @@
 package com.example.newtube.ui.channel
 
+import com.example.newtube.innertube.ContentSourceUnavailableException
 import com.example.newtube.model.Channel
 import com.example.newtube.model.ChannelVideosPage
 import com.example.newtube.model.Video
@@ -107,6 +108,24 @@ class ChannelViewModelTest {
 
             assertEquals(cached, viewModel.uiState.value.videos)
             assertFalse(viewModel.isRefreshing.value)
+        }
+
+    @Test
+    fun `a source failure keeps cached uploads and raises the banner`() =
+        runTest {
+            val cached = listOf(video("cached"))
+            every { repository.observeFeed(FeedKey.Channel("UC1")) } returns flowOf(cached)
+            coEvery { repository.getChannelDetails("UC1") } returns channel()
+            coEvery { repository.refreshFeed(FeedKey.Channel("UC1")) } returns
+                Result.failure(ContentSourceUnavailableException("blocked"))
+
+            val viewModel = ChannelViewModel(repository)
+            viewModel.loadChannelDetails("UC1")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(cached, viewModel.uiState.value.videos)
+            assertTrue(viewModel.uiState.value.sourceUnavailable)
+            assertEquals(null, viewModel.uiState.value.videosError)
         }
 
     @Test

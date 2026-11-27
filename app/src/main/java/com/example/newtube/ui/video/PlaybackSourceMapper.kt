@@ -35,7 +35,7 @@ internal fun PlaybackSource.toMediaSource(
             // follow it so track selection prefers the chosen one by default.
             val items =
                 listOf(mediaItem()) +
-                    (listOf(audioUrl) + audioAlternatives).map(MediaItem::fromUri)
+                    (listOf(audioUrl) + audioAlternatives).distinct().map(MediaItem::fromUri)
             val sources =
                 items.map { item ->
                     ProgressiveMediaSource

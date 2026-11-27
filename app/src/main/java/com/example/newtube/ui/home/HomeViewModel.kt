@@ -2,6 +2,7 @@ package com.example.newtube.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.newtube.innertube.ContentSourceUnavailableException
 import com.example.newtube.model.HomeCategory
 import com.example.newtube.model.Video
 import com.example.newtube.repository.FeedKey
@@ -33,6 +34,10 @@ class HomeViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
+    /** True when the last refresh failed but a cached feed is still on screen. */
+    private val _sourceUnavailable = MutableStateFlow(false)
+    val sourceUnavailable: StateFlow<Boolean> = _sourceUnavailable
+
     private val _selectedCategory = MutableStateFlow(HomeCategory.ALL)
     val selectedCategory: StateFlow<HomeCategory> = _selectedCategory
 
@@ -48,6 +53,9 @@ class HomeViewModel @Inject constructor(
 
     /** Incremented by every fetch; stale responses compare against it and bail out. */
     private var requestToken = 0
+
+    /** A network result has been published for the current key; don't undo it with cached data. */
+    private var networkPublished = false
 
     /** Live fetches, so a stale response cannot clear a newer refresh indicator. */
     private var inFlight = 0
@@ -69,11 +77,13 @@ class HomeViewModel @Inject constructor(
                 }
                 .collect { (category, cached) ->
                     if (clearInFlight > 0 || awaitFreshFeed) return@collect
-                    if (category == _selectedCategory.value && cached.isNotEmpty()) {
-                        cache[category] = cached
-                        displayedCategory = category
-                        _uiState.value = UiState.Success(cached)
-                    }
+                    if (category != _selectedCategory.value || cached.isEmpty()) return@collect
+                    cache[category] = cached
+                    // A completed network fetch already published fresher data
+                    // for this key; a late Room emission must not undo it.
+                    if (networkPublished) return@collect
+                    displayedCategory = category
+                    _uiState.value = UiState.Success(cached)
                 }
         }
         load()
@@ -93,6 +103,8 @@ class HomeViewModel @Inject constructor(
         awaitFreshFeed = true
         cache.clear()
         displayedCategory = null
+        networkPublished = false
+        _sourceUnavailable.value = false
         _uiState.value = UiState.Loading
         viewModelScope.launch {
             try {
@@ -112,14 +124,20 @@ class HomeViewModel @Inject constructor(
 
     fun selectCategory(category: HomeCategory) {
         if (category == _selectedCategory.value) return
+        // Invalidate the previous key's request before changing the selection.
+        requestToken++
         _selectedCategory.value = category
+        networkPublished = false
+        _sourceUnavailable.value = false
         val cached = cache[category]
         if (cached != null) {
             displayedCategory = category
             _uiState.value = UiState.Success(cached)
-            return
+            // Show the cache immediately, then revalidate that same key.
+            fetch(showLoading = false)
+        } else {
+            load()
         }
-        load()
     }
 
     fun load() = fetch(showLoading = true)
@@ -153,13 +171,18 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val feed = repository.refreshFeed(FeedKey.Home(category)).getOrThrow()
-                if (token != requestToken) return@launch
+                if (token != requestToken || category != _selectedCategory.value) return@launch
                 cache[category] = feed
                 displayedCategory = category
+                networkPublished = true
                 awaitFreshFeed = false
+                _sourceUnavailable.value = false
                 _uiState.value = UiState.Success(feed)
             } catch (e: Exception) {
-                if (token != requestToken) return@launch
+                if (token != requestToken || category != _selectedCategory.value) return@launch
+                // Only a chain-wide source failure is shown as a banner;
+                // ordinary errors on a cached screen stay silent.
+                _sourceUnavailable.value = e is ContentSourceUnavailableException
                 if (displayedCategory != category) {
                     _uiState.value = UiState.Error(e.toUserMessage())
                 }

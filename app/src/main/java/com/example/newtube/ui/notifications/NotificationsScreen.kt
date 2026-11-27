@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +50,7 @@ fun NotificationsScreen(
     viewModel: NotificationsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.load() }
 
@@ -57,6 +59,9 @@ fun NotificationsScreen(
             title = stringResource(R.string.notifications_title),
             onBack = { navController.popBackStack() },
         )
+        if (isRefreshing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp))
+        }
         when {
             state.signedOut -> SignedOutCta(onSignIn = { navController.navigate("login") })
             state.loading -> LoadingScreen()

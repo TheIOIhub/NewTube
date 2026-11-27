@@ -8,6 +8,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.example.newtube.innertube.ContentConfigRepository
 import com.example.newtube.repository.SettingsRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -26,6 +27,8 @@ import java.util.Locale
 @InstallIn(SingletonComponent::class)
 interface AppSettingsEntryPoint {
     fun settingsRepository(): SettingsRepository
+
+    fun contentConfigRepository(): ContentConfigRepository
 }
 
 @HiltAndroidApp
@@ -34,11 +37,9 @@ class MyApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        val entryPoint = EntryPointAccessors.fromApplication(this, AppSettingsEntryPoint::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val repository =
-                EntryPointAccessors
-                    .fromApplication(this, AppSettingsEntryPoint::class.java)
-                    .settingsRepository()
+            val repository = entryPoint.settingsRepository()
             appScope.launch {
                 repository.settings
                     .distinctUntilChanged { old, new -> old.appLanguage == new.appLanguage }
@@ -52,6 +53,12 @@ class MyApplication : Application(), ImageLoaderFactory {
                         getSystemService(LocaleManager::class.java).applicationLocales = locales
                     }
             }
+        }
+        // The remote client config is optional; a failed or absent config URL
+        // simply leaves the bundled defaults in place. IO keeps the cold start
+        // off the main thread and DataStore keeps the last good config on disk.
+        appScope.launch(Dispatchers.IO) {
+            runCatching { entryPoint.contentConfigRepository().refresh() }
         }
     }
 

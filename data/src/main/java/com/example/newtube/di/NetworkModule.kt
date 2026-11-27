@@ -6,6 +6,7 @@ import com.example.newtube.innertube.ContentConfigRepository
 import com.example.newtube.innertube.DataStoreContentConfigRepository
 import com.example.newtube.innertube.YouTubeContentClient
 import com.example.newtube.innertube.contentConfigStore
+import com.example.newtube.repository.SettingsRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -54,5 +55,6 @@ object NetworkModule {
     fun provideYouTubeContentClient(
         client: OkHttpClient,
         config: ContentConfigRepository,
-    ): YouTubeContentClient = YouTubeContentClient(client, config)
+        settings: SettingsRepository,
+    ): YouTubeContentClient = YouTubeContentClient(client, config, settingsRepository = settings)
 }
