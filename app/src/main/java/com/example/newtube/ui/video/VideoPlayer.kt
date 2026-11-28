@@ -39,6 +39,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
@@ -187,6 +188,15 @@ fun VideoPlayer(
         trackSelector.setParameters(parameters.build())
     }
 
+    if (!isShorts) {
+        LaunchedEffect(settings.speed) {
+            exoPlayer.playbackParameters = PlaybackParameters(settings.speed)
+        }
+        LaunchedEffect(settings.repeat) {
+            exoPlayer.repeatMode = if (settings.repeat) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        }
+    }
+
     LaunchedEffect(settings.audioLabel) {
         val parameters = trackSelector.buildUponParameters()
         if (settings.audioLabel == "Авто") {
@@ -304,7 +314,7 @@ fun VideoPlayer(
                     gestureVolume = gestureVolume,
                     gestureBrightness = gestureBrightness,
                     volumeGestureSide = volumeGestureSide,
-                    brightnessGestureSide = brightnessGestureSide,
+                    brightnessGestureSide = settings.brightnessGestureSide,
                     videoBrightness = videoBrightness,
                 ),
             onBrightness = onBrightnessChange,
@@ -368,8 +378,6 @@ fun VideoPlayer(
                 }
             }
 
-            val audioAlternatives = (playback as? PlaybackSource.Merged)?.audioAlternatives.orEmpty()
-
             if (!isShorts && !LocalPipMode.current && playbackError == null) {
                 if (controlsVisible) {
                     PlayerTopBar(
@@ -425,10 +433,9 @@ fun VideoPlayer(
                     PlayerSettingsSheet(
                         settings = settings,
                         heights = (AppSettings.QUALITY_OPTIONS + availableHeights).distinct().sortedDescending(),
-                        audioOptions = audioOptions.map { it.label } + audioAlternatives.mapIndexed { index, _ -> "Доріжка ${index + 1}" },
+                        audioOptions = audioOptions.map { it.label },
                         onSettingsChange = { next ->
                             onSettingsChange(next)
-                            if (next.resize != settings.resize) onResizeModeChange(next.resize)
                             revealControls()
                         },
                         onPip = onPip,

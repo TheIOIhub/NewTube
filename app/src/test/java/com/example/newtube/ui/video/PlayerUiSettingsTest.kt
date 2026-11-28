@@ -1,6 +1,7 @@
 package com.example.newtube.ui.video
 
 import com.example.newtube.model.AppSettings
+import com.example.newtube.model.GestureSide
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -52,5 +53,12 @@ class PlayerUiSettingsTest {
         assertEquals("Кастинг", PlayerLabels.CAST)
         assertEquals("Браузер", PlayerLabels.BROWSER)
         assertEquals("Недоступно", PlayerLabels.UNAVAILABLE)
+    }
+
+    @Test
+    fun `brightness gesture side defaults to left and is per video`() {
+        val original = PlayerUiSettings()
+        assertEquals(GestureSide.LEFT, original.brightnessGestureSide)
+        assertEquals(GestureSide.RIGHT, original.copy(brightnessGestureSide = GestureSide.RIGHT).brightnessGestureSide)
     }
 }

@@ -1,6 +1,7 @@
 package com.example.newtube.ui.video
 
 import com.example.newtube.model.AppSettings
+import com.example.newtube.model.GestureSide
 
 /**
  * Player settings for the current video only. Nothing here is persisted:
@@ -13,6 +14,7 @@ data class PlayerUiSettings(
     val resize: Int = AppSettings.RESIZE_FIT,
     val audioLabel: String = "Авто",
     val gestureZoom: Boolean = true,
+    val brightnessGestureSide: GestureSide = GestureSide.LEFT,
     val pipEnabled: Boolean = true,
 )
 

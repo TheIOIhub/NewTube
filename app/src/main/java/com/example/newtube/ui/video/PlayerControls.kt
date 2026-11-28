@@ -40,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.newtube.R
 import com.example.newtube.model.AppSettings
+import com.example.newtube.model.GestureSide
 
 object PlayerLabels {
     const val QUALITY = "Якість"
@@ -212,7 +213,14 @@ fun PlayerSettingsSheet(
                             onSettingsChange(settings.copy(gestureZoom = it))
                         }
                     }
-                    item { SettingsRow(PlayerLabels.BRIGHTNESS_GESTURE, "Ліва") { page = PlayerLabels.BRIGHTNESS_GESTURE } }
+                    item {
+                        SettingsRow(
+                            PlayerLabels.BRIGHTNESS_GESTURE,
+                            sideLabel(settings.brightnessGestureSide),
+                        ) {
+                            page = PlayerLabels.BRIGHTNESS_GESTURE
+                        }
+                    }
                     item { SettingsRow(PlayerLabels.HOLD_SPEED, PlayerLabels.UNAVAILABLE) {} }
                     item {
                         SettingsRow(PlayerLabels.PIP, "Відкрити") {
@@ -256,8 +264,11 @@ fun PlayerSettingsSheet(
                                 }
                             }
                         PlayerLabels.BRIGHTNESS_GESTURE ->
-                            items(listOf("Ліва", "Права", "Вимкнено")) { label ->
-                                SettingsRow(label, "") { page = null }
+                            items(listOf(GestureSide.LEFT, GestureSide.RIGHT, GestureSide.OFF)) { side ->
+                                SettingsRow(sideLabel(side), "") {
+                                    onSettingsChange(settings.copy(brightnessGestureSide = side))
+                                    page = null
+                                }
                             }
                     }
                 }
@@ -291,6 +302,13 @@ private fun SettingsToggle(
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }
+
+private fun sideLabel(side: GestureSide): String =
+    when (side) {
+        GestureSide.LEFT -> "Ліва"
+        GestureSide.RIGHT -> "Права"
+        GestureSide.OFF -> "Вимкнено"
+    }
 
 private fun resizeLabel(value: Int): String =
     when (value) {
