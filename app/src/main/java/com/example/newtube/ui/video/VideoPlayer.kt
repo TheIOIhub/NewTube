@@ -112,6 +112,7 @@ fun VideoPlayer(
     var isBuffering by remember { mutableStateOf(true) }
     var playbackError by remember { mutableStateOf<String?>(null) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var settingsPage by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
     var controlsEpoch by remember { mutableStateOf(0) }
 
@@ -320,7 +321,7 @@ fun VideoPlayer(
             onBrightness = onBrightnessChange,
             onTap = { revealControls() },
             enabled = gesturesEnabled,
-            canMinimize = canMinimize,
+            canMinimize = canMinimize && !isFullscreen,
             onMinimize = onMinimize,
         ) {
             AndroidView(
@@ -391,11 +392,17 @@ fun VideoPlayer(
                             if (isFullscreen) onToggleFullscreen() else onMinimize()
                             revealControls()
                         },
+                        onQuality = {
+                            settingsPage = PlayerLabels.QUALITY
+                            settingsOpen = true
+                            revealControls()
+                        },
                         onPip = {
                             onPip()
                             revealControls()
                         },
                         onSettings = {
+                            settingsPage = null
                             settingsOpen = true
                             revealControls()
                         },
@@ -440,6 +447,7 @@ fun VideoPlayer(
                         },
                         onPip = onPip,
                         onDismiss = { settingsOpen = false },
+                        initialPage = settingsPage,
                     )
                 }
             }

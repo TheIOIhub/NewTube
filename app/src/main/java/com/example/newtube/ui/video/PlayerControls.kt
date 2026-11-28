@@ -65,6 +65,7 @@ fun PlayerTopBar(
     qualityLabel: String,
     showPip: Boolean,
     onBack: () -> Unit,
+    onQuality: () -> Unit,
     onPip: () -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -82,7 +83,9 @@ fun PlayerTopBar(
             )
         }
         Spacer(Modifier.weight(1f))
-        Text(qualityLabel, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = onQuality) {
+            Text(qualityLabel, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+        }
         if (showPip) {
             IconButton(onClick = onPip) {
                 Icon(
@@ -176,8 +179,9 @@ fun PlayerSettingsSheet(
     onSettingsChange: (PlayerUiSettings) -> Unit,
     onPip: () -> Unit,
     onDismiss: () -> Unit,
+    initialPage: String? = null,
 ) {
-    var page by remember { mutableStateOf<String?>(null) }
+    var page by remember { mutableStateOf(initialPage) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Box(

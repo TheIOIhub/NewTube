@@ -98,4 +98,10 @@ class GestureMathTest {
     fun `horizontal drag does not start a fullscreen gesture`() {
         assertFalse(GestureMath.canStartFullscreenGesture(200f, 400f, 100f, 10f, 720f, 1280f, 48f))
     }
+
+    @Test
+    fun `central band keeps gestures away from screen edges`() {
+        assertFalse(GestureMath.canStartFullscreenGesture(200f, 60f, 0f, 100f, 1280f, 720f, 86f))
+        assertTrue(GestureMath.canStartFullscreenGesture(640f, 360f, 0f, 100f, 1280f, 720f, 86f))
+    }
 }

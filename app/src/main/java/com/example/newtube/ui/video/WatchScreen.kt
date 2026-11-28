@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.ContextWrapper
 import android.os.Build
+import android.util.Log
+import android.util.Rational
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -185,9 +187,14 @@ private fun WatchStage(
             onSettingsChange = { playerSettings = it },
             onPip = {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
-                    runCatching {
-                        activity.enterPictureInPictureMode(PictureInPictureParams.Builder().build())
-                    }
+                    isFullscreen = false
+                    val params =
+                        PictureInPictureParams
+                            .Builder()
+                            .setAspectRatio(Rational(16, 9))
+                            .build()
+                    runCatching { activity.enterPictureInPictureMode(params) }
+                        .onFailure { Log.e("WatchScreen", "PiP unavailable", it) }
                 }
             },
             onRetry = onRetry,
