@@ -40,9 +40,9 @@ class GestureMathTest {
 
     @Test
     fun `drag fraction is clamped to the usable brightness range`() {
-        assertEquals(0.01f, GestureMath.dragFraction(-10_000, 1000, 0.5f), 0.001f)
-        assertEquals(1f, GestureMath.dragFraction(10_000, 1000, 0.5f), 0.001f)
-        assertEquals(0.6f, GestureMath.dragFraction(100, 1000, 0.5f), 0.001f)
+        assertEquals(1f, GestureMath.dragFraction(-10_000, 1000, 0.5f), 0.001f)
+        assertEquals(0.01f, GestureMath.dragFraction(10_000, 1000, 0.5f), 0.001f)
+        assertEquals(0.4f, GestureMath.dragFraction(100, 1000, 0.5f), 0.001f)
     }
 
     @Test

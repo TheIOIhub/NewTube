@@ -97,7 +97,7 @@ internal object GestureMath {
         current: Float,
     ): Float {
         if (height <= 0) return current.coerceIn(0.01f, 1f)
-        return (current + dy.toFloat() / height).coerceIn(0.01f, 1f)
+        return (current - dy.toFloat() / height).coerceIn(0.01f, 1f)
     }
 
     fun resolveSides(

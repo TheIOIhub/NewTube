@@ -173,8 +173,8 @@ fun PlayerGestureOverlay(
                                     currentFraction =
                                         if (dragAction == DragAction.VOLUME) {
                                             val max = audioManager.getStreamMaxVolume(C.STREAM_TYPE_MUSIC)
-                                            audioManager.getStreamVolume(C.STREAM_TYPE_MUSIC).toFloat() /
-                                                max.coerceAtLeast(1)
+                                            val vol = audioManager.getStreamVolume(C.STREAM_TYPE_MUSIC)
+                                            vol.toFloat() / max.coerceAtLeast(1)
                                         } else {
                                             settings.videoBrightness
                                                 ?: activity?.window?.attributes?.screenBrightness?.takeIf { it > 0f }
