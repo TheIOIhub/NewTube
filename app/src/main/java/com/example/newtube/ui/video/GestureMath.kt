@@ -56,6 +56,25 @@ internal object GestureMath {
     ): Boolean =
         canMinimize && !isFullscreen && dy >= 80 && abs(dy) >= abs(dx)
 
+    /**
+     * Fullscreen volume/brightness drags must start away from system-gesture
+     * edges and must be predominantly vertical.
+     */
+    fun canStartFullscreenGesture(
+        x: Float,
+        y: Float,
+        dx: Float,
+        dy: Float,
+        width: Float,
+        height: Float,
+        edgePx: Float,
+    ): Boolean =
+        x >= edgePx &&
+            x <= width - edgePx &&
+            y >= edgePx &&
+            y <= height - edgePx &&
+            abs(dy) >= abs(dx)
+
     /** Honours reassigned sides and independent enable flags. */
     fun dragAction(
         half: Int,

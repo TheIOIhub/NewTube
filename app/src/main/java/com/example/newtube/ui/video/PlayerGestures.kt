@@ -138,8 +138,20 @@ fun PlayerGestureOverlay(
                                         continue
                                     }
                                     if (dragging) continue
-                                    if (abs(dy) < 40f || abs(dy) < abs(dx)) continue
-                                    if (startY < 40f || size.height - startY < 40f) continue
+                                    if (abs(dy) < 40f) continue
+                                    if (
+                                        !GestureMath.canStartFullscreenGesture(
+                                            startX,
+                                            startY,
+                                            dx,
+                                            dy,
+                                            size.width.toFloat(),
+                                            size.height.toFloat(),
+                                            48f,
+                                        )
+                                    ) {
+                                        continue
+                                    }
                                     val half = GestureMath.classifyHalf(startX.toInt(), size.width)
                                     val (volumeSide, brightnessSide) =
                                         GestureMath.resolveSides(
