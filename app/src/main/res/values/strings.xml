@@ -172,4 +172,9 @@
 
     <string name="category_for_you">Для вас</string>
     <string name="watch_next">Далі: %1$s</string>
+
+    <string name="player_settings">Налаштування плеєра</string>
+    <string name="player_pip">Картинка в картинці</string>
+    <string name="player_error">Не вдалося завантажити відео</string>
+    <string name="player_retry">Повторити</string>
 </resources>

@@ -35,4 +35,22 @@ class PlayerUiSettingsTest {
         assertEquals("0:27", formatPlayerTime(27_000L))
         assertEquals("1:01:03", formatPlayerTime(3_663_000L))
     }
+
+    @Test
+    fun `settings rows use Ukrainian labels`() {
+        assertEquals("Якість", PlayerLabels.QUALITY)
+        assertEquals("Швидкість", PlayerLabels.SPEED)
+        assertEquals("Аудіодоріжка", PlayerLabels.AUDIO)
+        assertEquals("Повторювати", PlayerLabels.REPEAT)
+        assertEquals("Екран", PlayerLabels.SCREEN)
+        assertEquals("Жест яскравості", PlayerLabels.BRIGHTNESS_GESTURE)
+        assertEquals("Жест збільшення", PlayerLabels.ZOOM_GESTURE)
+        assertEquals("Швидкість під час утримання", PlayerLabels.HOLD_SPEED)
+        assertEquals("PiP", PlayerLabels.PIP)
+        assertEquals("Субтитри", PlayerLabels.SUBTITLES)
+        assertEquals("Таймер", PlayerLabels.TIMER)
+        assertEquals("Кастинг", PlayerLabels.CAST)
+        assertEquals("Браузер", PlayerLabels.BROWSER)
+        assertEquals("Недоступно", PlayerLabels.UNAVAILABLE)
+    }
 }
