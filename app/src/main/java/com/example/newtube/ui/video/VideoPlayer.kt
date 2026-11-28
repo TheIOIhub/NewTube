@@ -308,6 +308,7 @@ fun VideoPlayer(
                     videoBrightness = videoBrightness,
                 ),
             onBrightness = onBrightnessChange,
+            onTap = { revealControls() },
             enabled = gesturesEnabled,
             canMinimize = canMinimize,
             onMinimize = onMinimize,

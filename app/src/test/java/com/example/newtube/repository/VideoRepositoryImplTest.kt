@@ -369,6 +369,28 @@ class VideoRepositoryImplTest {
         }
 
     @Test
+    fun `getVideoDetails prefers muxed progressive streams that accept open ranges`() =
+        runBlocking {
+            coEvery { contentClient.player("v1") } returns
+                playerJson(
+                    "v1",
+                    formats =
+                        listOf(
+                            format("https://example.invalid/progressive.mp4", "video/mp4; codecs=avc1.4D401E, mp4a.40.2", 360),
+                        ),
+                    adaptive =
+                        listOf(
+                            format("https://example.invalid/720.mp4", "video/mp4; codecs=avc1.64001F", 720),
+                            format("https://example.invalid/audio.m4a", "audio/mp4; codecs=mp4a.40.2", bitrate = "130668"),
+                        ),
+                )
+
+            val details = repository.getVideoDetails("v1", maxHeight = 720)
+
+            assertEquals(PlaybackSource.Progressive("https://example.invalid/progressive.mp4"), details.playback)
+        }
+
+    @Test
     fun `getVideoDetails applies the maxHeight cap before choosing playback`() =
         runBlocking {
             coEvery { contentClient.player("v1") } returns

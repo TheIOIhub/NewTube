@@ -37,7 +37,8 @@ object PlaybackCacheModule {
         CacheDataSource.Factory()
             .setCache(cache)
             .setUpstreamDataSourceFactory(
-                OkHttpDataSource.Factory(OkHttpClient.Builder().build())
+                OkHttpDataSource
+                    .Factory(OkHttpClient.Builder().build())
                     .setDefaultRequestProperties(MediaRequestHeaders.headers()),
             )
 }

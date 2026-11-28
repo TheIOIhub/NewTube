@@ -56,6 +56,7 @@ fun PlayerGestureOverlay(
     onBrightness: (Float) -> Unit,
     canMinimize: Boolean = false,
     onMinimize: () -> Unit = {},
+    onTap: () -> Unit = {},
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
@@ -242,6 +243,7 @@ fun PlayerGestureOverlay(
                                         seekFeedback =
                                             ((target - sequenceBasePosition) / 1000L).toInt()
                                     }
+                                    onTap()
                                 }
 
                                 else -> Unit
