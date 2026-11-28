@@ -4,12 +4,16 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.media.AudioManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +60,7 @@ fun PlayerGestureOverlay(
     onBrightness: (Float) -> Unit,
     canMinimize: Boolean = false,
     onMinimize: () -> Unit = {},
+    onTap: () -> Unit = {},
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
@@ -69,6 +74,11 @@ fun PlayerGestureOverlay(
     val topControlsPx = with(LocalDensity.current) { 72.dp.toPx() }
     var seekFeedback by remember { mutableStateOf<Int?>(null) }
     var indicator by remember { mutableStateOf<Pair<Boolean, Float>?>(null) }
+    var lastIndicator by remember { mutableStateOf<Pair<Boolean, Float>?>(null) }
+
+    LaunchedEffect(indicator) {
+        if (indicator != null) lastIndicator = indicator
+    }
 
     LaunchedEffect(seekFeedback) {
         if (seekFeedback != null) {
@@ -138,8 +148,20 @@ fun PlayerGestureOverlay(
                                         continue
                                     }
                                     if (dragging) continue
-                                    if (abs(dy) < 40f || abs(dy) < abs(dx)) continue
-                                    if (startY < 40f || size.height - startY < 40f) continue
+                                    if (abs(dy) < 40f) continue
+                                    if (
+                                        !GestureMath.canStartFullscreenGesture(
+                                            startX,
+                                            startY,
+                                            dx,
+                                            dy,
+                                            size.width.toFloat(),
+                                            size.height.toFloat(),
+                                            kotlin.math.min(size.width, size.height) * 0.12f,
+                                        )
+                                    ) {
+                                        continue
+                                    }
                                     val half = GestureMath.classifyHalf(startX.toInt(), size.width)
                                     val (volumeSide, brightnessSide) =
                                         GestureMath.resolveSides(
@@ -160,13 +182,16 @@ fun PlayerGestureOverlay(
                                     currentFraction =
                                         if (dragAction == DragAction.VOLUME) {
                                             val max = audioManager.getStreamMaxVolume(C.STREAM_TYPE_MUSIC)
-                                            audioManager.getStreamVolume(C.STREAM_TYPE_MUSIC).toFloat() /
-                                                max.coerceAtLeast(1)
+                                            val vol = audioManager.getStreamVolume(C.STREAM_TYPE_MUSIC)
+                                            vol.toFloat() / max.coerceAtLeast(1)
                                         } else {
                                             settings.videoBrightness
                                                 ?: activity?.window?.attributes?.screenBrightness?.takeIf { it > 0f }
                                                 ?: 0.5f
                                         }
+                                    indicator =
+                                        (dragAction == DragAction.VOLUME) to
+                                        GestureMath.dragFraction(dy.toInt(), size.height, currentFraction)
                                 }
 
                                 PointerEventType.Release -> {
@@ -230,6 +255,7 @@ fun PlayerGestureOverlay(
                                         seekFeedback =
                                             ((target - sequenceBasePosition) / 1000L).toInt()
                                     }
+                                    onTap()
                                 }
 
                                 else -> Unit
@@ -256,22 +282,33 @@ fun PlayerGestureOverlay(
             )
         }
 
-        indicator?.let { (isVolume, fraction) ->
-            Box(
-                modifier =
-                    Modifier
-                        .align(if (isVolume) Alignment.CenterEnd else Alignment.CenterStart)
-                        .fillMaxHeight(0.55f)
-                        .width(20.dp)
-                        .padding(vertical = 16.dp)
-                        .background(Color.Black.copy(alpha = 0.6f)),
-            ) {
-                Text(
-                    text = "${(fraction * 100).toInt()}%",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
+        AnimatedVisibility(
+            visible = indicator != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            lastIndicator?.let { (isVolume, fraction) ->
+                Box(
+                    modifier =
+                        Modifier
+                            .align(Alignment.Center)
+                            .background(Color.Black.copy(alpha = 0.75f))
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "${if (isVolume) "🔊" else "☀️"} ${(fraction * 100).toInt()}%",
+                            color = Color.White,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        LinearProgressIndicator(
+                            progress = fraction.coerceIn(0f, 1f),
+                            modifier = Modifier.width(160.dp).padding(top = 8.dp),
+                        )
+                    }
+                }
             }
         }
     }

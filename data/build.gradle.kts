@@ -58,6 +58,7 @@ dependencies {
     implementation("androidx.media3:media3-common:1.4.1")
     implementation("androidx.media3:media3-database:1.4.1")
     implementation("androidx.media3:media3-datasource:1.4.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
 
     implementation("androidx.room:room-runtime:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")

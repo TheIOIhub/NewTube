@@ -390,6 +390,18 @@ class VideoRepositoryImpl @Inject constructor(
         if (live && hls != null) return PlaybackSource.Hls(hls)
 
         val cap = maxHeight.takeIf { it > 0 } ?: AppSettings.DEFAULT_QUALITY
+        // Prefer the muxed progressive track: adaptive audio/video URLs from
+        // this client need a bounded Range that Media3 cannot stream reliably,
+        // while the progressive URL works with the normal open-ended Range.
+        val progressive =
+            streaming
+                .formats("formats")
+                .filter { it.isPlayableVideo() }
+                .maxByOrNull { it.height() }
+        if (progressive != null) {
+            return PlaybackSource.Progressive(checkNotNull(progressive.string("url")))
+        }
+
         val adaptive = streaming.formats("adaptiveFormats")
         val cappedVideo =
             adaptive
@@ -400,15 +412,6 @@ class VideoRepositoryImpl @Inject constructor(
         if (cappedVideo != null && audio.isNotEmpty()) {
             val urls = audio.map { checkNotNull(it.string("url")) }.distinct()
             return PlaybackSource.Merged(checkNotNull(cappedVideo.string("url")), urls.first(), urls.drop(1))
-        }
-
-        val progressive =
-            streaming
-                .formats("formats")
-                .filter { it.isPlayableVideo() && it.height() <= cap }
-                .maxByOrNull { it.height() }
-        if (progressive != null) {
-            return PlaybackSource.Progressive(checkNotNull(progressive.string("url")))
         }
         return hls?.let(PlaybackSource::Hls)
     }

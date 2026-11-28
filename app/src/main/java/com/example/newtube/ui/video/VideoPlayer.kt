@@ -1,7 +1,6 @@
 package com.example.newtube.ui.video
 
 import android.app.Activity
-import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
@@ -12,16 +11,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -46,6 +39,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
@@ -60,6 +54,7 @@ import com.example.newtube.di.PlaybackCacheEntryPoint
 import com.example.newtube.model.AppSettings
 import com.example.newtube.model.GestureSide
 import com.example.newtube.model.PlaybackSource
+import com.example.newtube.ui.common.LocalPipMode
 import dagger.hilt.android.EntryPointAccessors
 
 /**
@@ -103,17 +98,35 @@ fun VideoPlayer(
     onPlaybackEnded: () -> Unit = {},
     canMinimize: Boolean = false,
     onMinimize: () -> Unit = {},
+    settings: PlayerUiSettings = PlayerUiSettings(),
+    onSettingsChange: (PlayerUiSettings) -> Unit = {},
+    onPip: () -> Unit = {},
+    onRetry: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
-    var quality by rememberSaveable { mutableStateOf(AUTO_QUALITY) }
     var availableHeights by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var qualityMenuOpen by remember { mutableStateOf(false) }
-    var audioMenuOpen by remember { mutableStateOf(false) }
     var audioOptions by remember { mutableStateOf<List<AudioTrackOption>>(emptyList()) }
     var selectedAudioKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
     var playbackError by remember { mutableStateOf<String?>(null) }
+    var settingsOpen by remember { mutableStateOf(false) }
+    var settingsPage by remember { mutableStateOf<String?>(null) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var controlsEpoch by remember { mutableStateOf(0) }
+
+    fun revealControls() {
+        controlsVisible = true
+        controlsEpoch++
+    }
+
+    LaunchedEffect(controlsEpoch) {
+        if (controlsEpoch > 0) {
+            kotlinx.coroutines.delay(3_000)
+            controlsVisible = false
+        }
+    }
 
     val trackSelector = remember { DefaultTrackSelector(context) }
     // Route Watch's media source through the SAME singleton cached
@@ -162,16 +175,39 @@ fun VideoPlayer(
         }
     }
 
-    LaunchedEffect(quality, preferredAudioLanguage, preferOriginalAudio) {
+    LaunchedEffect(settings.quality, preferredAudioLanguage, preferOriginalAudio) {
         val parameters =
             trackSelector
                 .buildUponParameters()
                 .setPreferredAudioLanguage(preferredAudioLanguage)
                 .setPreferredAudioRoleFlags(if (preferOriginalAudio) C.ROLE_FLAG_MAIN else 0)
-        if (quality == AUTO_QUALITY) {
+        if (settings.quality == Int.MAX_VALUE) {
             parameters.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
         } else {
-            parameters.setMaxVideoSize(Int.MAX_VALUE, quality)
+            parameters.setMaxVideoSize(Int.MAX_VALUE, settings.quality)
+        }
+        trackSelector.setParameters(parameters.build())
+    }
+
+    if (!isShorts) {
+        LaunchedEffect(settings.speed) {
+            exoPlayer.playbackParameters = PlaybackParameters(settings.speed)
+        }
+        LaunchedEffect(settings.repeat) {
+            exoPlayer.repeatMode = if (settings.repeat) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        }
+    }
+
+    LaunchedEffect(settings.audioLabel) {
+        val parameters = trackSelector.buildUponParameters()
+        if (settings.audioLabel == "Авто") {
+            parameters.clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+        } else {
+            audioOptions.firstOrNull { it.label == settings.audioLabel }?.let { option ->
+                parameters.setOverrideForType(
+                    TrackSelectionOverride(option.group.mediaTrackGroup, option.index),
+                )
+            }
         }
         trackSelector.setParameters(parameters.build())
     }
@@ -180,6 +216,10 @@ fun VideoPlayer(
         var restored = false
         val listener =
             object : Player.Listener {
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
+
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     isBuffering = playbackState == Player.STATE_BUFFERING
                     if (playbackState == Player.STATE_READY) {
@@ -245,7 +285,7 @@ fun VideoPlayer(
         if (isFullscreen) {
             currentActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_BARS_BY_TOUCH
         } else {
             currentActivity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             controller.show(WindowInsetsCompat.Type.systemBars())
@@ -275,19 +315,20 @@ fun VideoPlayer(
                     gestureVolume = gestureVolume,
                     gestureBrightness = gestureBrightness,
                     volumeGestureSide = volumeGestureSide,
-                    brightnessGestureSide = brightnessGestureSide,
+                    brightnessGestureSide = settings.brightnessGestureSide,
                     videoBrightness = videoBrightness,
                 ),
             onBrightness = onBrightnessChange,
+            onTap = { revealControls() },
             enabled = gesturesEnabled,
-            canMinimize = canMinimize,
+            canMinimize = canMinimize && !isFullscreen,
             onMinimize = onMinimize,
         ) {
             AndroidView(
                 factory = { viewContext ->
                     PlayerView(viewContext).apply {
                         player = exoPlayer
-                        this.useController = useController
+                        this.useController = useController && isShorts
                         this.resizeMode = resizeMode
                         setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                     }
@@ -323,182 +364,91 @@ fun VideoPlayer(
                     modifier = Modifier.align(Alignment.Center).padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(text = "Playback failed ($errorCode)", color = Color.White)
+                    Text(text = stringResource(R.string.player_error), color = Color.White)
+                    Text(text = errorCode, color = Color.White.copy(alpha = 0.7f))
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(
                         onClick = {
                             Log.i(TAG, "Retrying playback after $errorCode")
                             playbackError = null
-                            if (holder != null) {
-                                holder.prepare(playback)
-                            } else {
-                                exoPlayer.prepare()
-                                exoPlayer.play()
-                            }
+                            onRetry()
                         },
                     ) {
-                        Text("Retry", color = Color.White)
+                        Text(stringResource(R.string.player_retry), color = Color.White)
                     }
                 }
             }
 
-            val audioAlternatives = (playback as? PlaybackSource.Merged)?.audioAlternatives.orEmpty()
-            val showAudioButton =
-                audioButtonVisible(showAudioControl, audioOptions.size, audioAlternatives.size)
-
-            fun applyAudioOption(option: AudioTrackOption) {
-                selectedAudioKey = option.key
-                trackSelector.setParameters(
-                    trackSelector
-                        .buildUponParameters()
-                        .setOverrideForType(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)),
-                )
-                audioMenuOpen = false
-            }
-
-            fun applyAudioAlternative(url: String) {
-                val merged = playback as? PlaybackSource.Merged ?: return
-                val savedPosition = exoPlayer.currentPosition
-                currentOnSavePosition(savedPosition)
-                exoPlayer.stop()
-                exoPlayer.setMediaSource(
-                    merged.copy(audioUrl = url).toMediaSource(context, cachedDataSourceFactory),
-                )
-                exoPlayer.prepare()
-                exoPlayer.seekTo(savedPosition)
-                exoPlayer.playWhenReady = true
-                audioMenuOpen = false
-            }
-
-            Row(
-                modifier =
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (showAudioButton) {
-                    Box {
-                        TextButton(onClick = { audioMenuOpen = true }) {
-                            Text("Аудіо", color = Color.White)
-                        }
-                        DropdownMenu(
-                            expanded = audioMenuOpen,
-                            onDismissRequest = { audioMenuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Авто") },
-                                onClick = {
-                                    selectedAudioKey = null
-                                    trackSelector.setParameters(
-                                        trackSelector
-                                            .buildUponParameters()
-                                            .clearOverridesOfType(C.TRACK_TYPE_AUDIO),
-                                    )
-                                    audioMenuOpen = false
-                                },
-                            )
-                            audioOptions.forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option.label) },
-                                    onClick = { applyAudioOption(option) },
-                                )
-                            }
-                            audioAlternatives.forEachIndexed { index, url ->
-                                DropdownMenuItem(
-                                    text = { Text("Доріжка ${index + 1}") },
-                                    onClick = { applyAudioAlternative(url) },
-                                )
-                            }
-                        }
-                    }
-                }
-
-                TextButton(
-                    onClick = {
-                        val next =
-                            when (resizeMode) {
-                                AppSettings.RESIZE_FIT -> AppSettings.RESIZE_FILL
-                                AppSettings.RESIZE_FILL -> AppSettings.RESIZE_ZOOM
-                                else -> AppSettings.RESIZE_FIT
-                            }
-                        onResizeModeChange(next)
-                    },
-                ) {
-                    Text(
-                        text =
-                            stringResource(
-                                when (resizeMode) {
-                                    AppSettings.RESIZE_FILL -> R.string.resize_fill
-                                    AppSettings.RESIZE_ZOOM -> R.string.resize_zoom
-                                    else -> R.string.resize_fit
-                                },
-                            ),
+            if (!isShorts && !LocalPipMode.current && playbackError == null) {
+                if (controlsVisible) {
+                    PlayerTopBar(
+                        isFullscreen = isFullscreen,
+                        qualityLabel = settings.qualityLabel(),
+                        showPip =
+                            settings.pipEnabled &&
+                                showPipControl &&
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O,
+                        onBack = {
+                            if (isFullscreen) onToggleFullscreen() else onMinimize()
+                            revealControls()
+                        },
+                        onQuality = {
+                            settingsPage = PlayerLabels.QUALITY
+                            settingsOpen = true
+                            revealControls()
+                        },
+                        onPip = {
+                            onPip()
+                            revealControls()
+                        },
+                        onSettings = {
+                            settingsPage = null
+                            settingsOpen = true
+                            revealControls()
+                        },
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                    PlayerCenterControls(
+                        isPlaying = isPlaying,
+                        onPlayPause = {
+                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            revealControls()
+                        },
+                        onSeek = { seconds ->
+                            exoPlayer.seekTo(exoPlayer.currentPosition + seconds * 1_000L)
+                            revealControls()
+                        },
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                    PlayerBottomBar(
+                        positionMs = exoPlayer.currentPosition,
+                        durationMs = exoPlayer.duration.coerceAtLeast(0L),
+                        isLive = playback is PlaybackSource.Hls,
+                        isFullscreen = isFullscreen,
+                        onSeekTo = { ms ->
+                            exoPlayer.seekTo(ms)
+                            revealControls()
+                        },
+                        onFullscreen = {
+                            onToggleFullscreen()
+                            revealControls()
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
-
-                if (showQualityControl) {
-                    Box {
-                        TextButton(
-                            onClick = { qualityMenuOpen = true },
-                            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = Color.White),
-                        ) {
-                            Text(if (quality == AUTO_QUALITY) "Auto" else "${quality}p")
-                        }
-                        DropdownMenu(
-                            expanded = qualityMenuOpen,
-                            onDismissRequest = { qualityMenuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Auto") },
-                                onClick = {
-                                    quality = AUTO_QUALITY
-                                    qualityMenuOpen = false
-                                },
-                            )
-                            (AppSettings.QUALITY_OPTIONS + availableHeights)
-                                .distinct()
-                                .sortedDescending()
-                                .forEach { height ->
-                                    DropdownMenuItem(
-                                        text = { Text("$height" + "p") },
-                                        onClick = {
-                                            quality = height
-                                            qualityMenuOpen = false
-                                        },
-                                    )
-                                }
-                        }
-                    }
-                }
-
-                if (showPipControl && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
-                    IconButton(
-                        onClick = {
-                            runCatching {
-                                activity.enterPictureInPictureMode(PictureInPictureParams.Builder().build())
-                            }
+                if (settingsOpen) {
+                    PlayerSettingsSheet(
+                        settings = settings,
+                        heights = (AppSettings.QUALITY_OPTIONS + availableHeights).distinct().sortedDescending(),
+                        audioOptions = audioOptions.map { it.label },
+                        onSettingsChange = { next ->
+                            onSettingsChange(next)
+                            revealControls()
                         },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_pip),
-                            contentDescription = "Picture in picture",
-                            tint = Color.White,
-                        )
-                    }
-                }
-
-                if (showFullscreenControl) {
-                    IconButton(onClick = onToggleFullscreen) {
-                        Icon(
-                            painter =
-                                painterResource(
-                                    if (isFullscreen) R.drawable.ic_fullscreen_exit else R.drawable.ic_fullscreen,
-                                ),
-                            contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
-                            tint = Color.White,
-                        )
-                    }
+                        onPip = onPip,
+                        onDismiss = { settingsOpen = false },
+                        initialPage = settingsPage,
+                    )
                 }
             }
         }
@@ -544,7 +494,6 @@ private fun PlaybackSource.describe(): String =
 
 private fun String.hostOrUnknown(): String = runCatching { java.net.URI(this).host }.getOrDefault("unknown")
 
-private const val AUTO_QUALITY = 0
 private const val RESUME_TOLERANCE_MS = 5_000L
 private const val WATCH_TARGET_BUFFER_BYTES = 96 * 1024 * 1024
 private const val TAG = "VideoPlayer"

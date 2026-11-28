@@ -1,5 +1,12 @@
 package com.example.newtube.ui.video
 
+import android.app.Activity
+import android.app.PictureInPictureParams
+import android.content.ContextWrapper
+import android.os.Build
+import android.util.Log
+import android.util.Rational
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -29,10 +36,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -89,8 +98,8 @@ fun WatchScreen(
                     watch = watch,
                     settings = settings,
                     onSavePosition = viewModel::savePosition,
-                    onResizeModeChange = viewModel::setResizeMode,
                     onBrightnessChange = viewModel::setVideoBrightness,
+                    onRetry = viewModel::retry,
                     onPlaybackEnded = {
                         watch.nextVideo?.id?.let { nextId ->
                             viewModel.onPlaybackEnded { navController.navigate("watch/$nextId") }
@@ -109,12 +118,22 @@ private fun WatchStage(
     watch: WatchUiState,
     settings: AppSettings,
     onSavePosition: (Long) -> Unit,
-    onResizeModeChange: (Int) -> Unit,
     onBrightnessChange: (Float) -> Unit,
+    onRetry: () -> Unit,
     onPlaybackEnded: () -> Unit,
 ) {
     var isMinimized by rememberSaveable { mutableStateOf(false) }
     var isFullscreen by rememberSaveable { mutableStateOf(false) }
+    var playerSettings by remember { mutableStateOf(PlayerUiSettings()) }
+    val context = LocalContext.current
+    val activity =
+        remember(context) {
+            generateSequence(context) { current ->
+                (current as? ContextWrapper)?.baseContext
+            }.filterIsInstance<Activity>().firstOrNull()
+        }
+
+    BackHandler(enabled = isFullscreen) { isFullscreen = false }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (isMinimized) {
@@ -151,10 +170,9 @@ private fun WatchStage(
             isFullscreen = isFullscreen,
             onToggleFullscreen = { isFullscreen = !isFullscreen },
             onSavePosition = onSavePosition,
-            resizeMode = settings.resizeMode,
+            resizeMode = playerSettings.resize,
             preferredAudioLanguage = settings.preferredAudioLanguage,
             preferOriginalAudio = settings.preferOriginalAudio,
-            onResizeModeChange = onResizeModeChange,
             doubleTapSeekSeconds = settings.doubleTapSeekSeconds,
             gestureVolume = settings.gestureVolume,
             gestureBrightness = settings.gestureBrightness,
@@ -165,6 +183,21 @@ private fun WatchStage(
             onPlaybackEnded = onPlaybackEnded,
             canMinimize = !isMinimized && !isFullscreen,
             onMinimize = { isMinimized = true },
+            settings = playerSettings,
+            onSettingsChange = { playerSettings = it },
+            onPip = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
+                    isFullscreen = false
+                    val params =
+                        PictureInPictureParams
+                            .Builder()
+                            .setAspectRatio(Rational(16, 9))
+                            .build()
+                    runCatching { activity.enterPictureInPictureMode(params) }
+                        .onFailure { Log.e("WatchScreen", "PiP unavailable", it) }
+                }
+            },
+            onRetry = onRetry,
         )
 
         if (isMinimized) {
